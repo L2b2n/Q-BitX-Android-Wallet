@@ -1,6 +1,7 @@
 package org.qbitx.wallet
 
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
@@ -29,6 +30,9 @@ class MainActivity : FragmentActivity() {
                         onUnlocked = { viewModel.unlock() }
                     )
                 } else {
+                    BackHandler(enabled = currentScreen != "home") {
+                        currentScreen = "home"
+                    }
                     when (currentScreen) {
                         "home" -> WalletScreen(
                             state = state,
