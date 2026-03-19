@@ -11,8 +11,8 @@ android {
         applicationId = "org.qbitx.wallet"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -94,6 +94,10 @@ dependencies {
 
     // Security (encrypted key storage)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Biometric authentication
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
 
     // QR code generation + scanning
     implementation("com.google.zxing:core:3.5.2")

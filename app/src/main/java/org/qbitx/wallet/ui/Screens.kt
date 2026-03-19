@@ -38,7 +38,18 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import org.qbitx.wallet.data.TxRecord
+import org.qbitx.wallet.data.WalletInfo
 import org.qbitx.wallet.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 // ==================== CARD STYLE ====================
 
@@ -52,6 +63,123 @@ private fun Modifier.solidCard(): Modifier = this
     .clip(RoundedCornerShape(16.dp))
     .background(QBXSurface)
 
+// ==================== LOCK SCREEN ====================
+
+@Composable
+fun LockScreen(onPinVerify: (String) -> Boolean, onUnlocked: () -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val canBiometric = remember {
+        BiometricManager.from(context)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    fun triggerBiometric() {
+        val activity = context as? FragmentActivity ?: return
+        val executor = ContextCompat.getMainExecutor(context)
+        val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                onUnlocked()
+            }
+        })
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Q-BitX Wallet")
+                .setSubtitle("Entsperre dein Wallet")
+                .setNegativeButtonText("PIN eingeben")
+                .build()
+        )
+    }
+
+    LaunchedEffect(Unit) { if (canBiometric) triggerBiometric() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.Lock, null, tint = QBXPurple, modifier = Modifier.size(56.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("Q-BitX Wallet", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = QBXOnSurface)
+        Spacer(Modifier.height(8.dp))
+        Text("PIN eingeben", fontSize = 14.sp, color = QBXOnSurfaceDim)
+        Spacer(Modifier.height(32.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            repeat(4) { i ->
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(if (i < pin.length) QBXPurple else QBXDivider)
+                )
+            }
+        }
+
+        if (error) {
+            Spacer(Modifier.height(12.dp))
+            Text("Falscher PIN", color = QBXRed, fontSize = 13.sp)
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        val keys = listOf(
+            listOf("1", "2", "3"),
+            listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf(if (canBiometric) "bio" else "", "0", "del")
+        )
+        keys.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(0.75f),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                row.forEach { key ->
+                    if (key.isEmpty()) {
+                        Spacer(Modifier.size(64.dp))
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(if (key == "bio") QBXPurple.copy(alpha = 0.15f) else QBXSurface)
+                                .clickable {
+                                    when (key) {
+                                        "del" -> if (pin.isNotEmpty()) { pin = pin.dropLast(1); error = false }
+                                        "bio" -> triggerBiometric()
+                                        else -> {
+                                            if (pin.length < 4) {
+                                                pin += key
+                                                if (pin.length == 4) {
+                                                    if (onPinVerify(pin)) onUnlocked()
+                                                    else { error = true; pin = "" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (key) {
+                                "bio" -> Icon(Icons.Default.Fingerprint, null, tint = QBXPurple, modifier = Modifier.size(28.dp))
+                                "del" -> Icon(Icons.Default.Backspace, null, tint = QBXOnSurfaceDim, modifier = Modifier.size(24.dp))
+                                else -> Text(key, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = QBXOnSurface)
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
 // ==================== MAIN WALLET SCREEN ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,7 +191,9 @@ fun WalletScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToReceive: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onSwitchWallet: (Int) -> Unit,
+    onAddWallet: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -218,6 +348,101 @@ fun WalletScreen(
         } else {
             // ===== Wallet exists — dashboard =====
 
+            // Wallet selector
+            var showWalletMenu by remember { mutableStateOf(false) }
+            var showAddDialog by remember { mutableStateOf(false) }
+            var newWalletName by remember { mutableStateOf("") }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .solidCard()
+                    .clickable { showWalletMenu = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.AccountBalanceWallet, null, tint = QBXPurple, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(state.activeWalletName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                    Text("${state.wallets.size} Wallet${if (state.wallets.size != 1) "s" else ""}", fontSize = 12.sp, color = QBXOnSurfaceDim)
+                }
+                Icon(Icons.Default.UnfoldMore, null, tint = QBXOnSurfaceDim, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(QBXPurple.copy(alpha = 0.15f))
+                        .clickable { showAddDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Add, null, tint = QBXPurple, modifier = Modifier.size(18.dp))
+                }
+
+                DropdownMenu(expanded = showWalletMenu, onDismissRequest = { showWalletMenu = false }) {
+                    state.wallets.forEach { wallet ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (wallet.address == state.address) {
+                                        Icon(Icons.Default.Check, null, tint = QBXPurple, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    Column {
+                                        Text(wallet.name, fontWeight = FontWeight.Medium)
+                                        Text(wallet.address.take(16) + "...", fontSize = 11.sp, color = QBXOnSurfaceDim)
+                                    }
+                                }
+                            },
+                            onClick = {
+                                onSwitchWallet(wallet.id)
+                                showWalletMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (showAddDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAddDialog = false; newWalletName = "" },
+                    containerColor = QBXSurface,
+                    titleContentColor = QBXOnSurface,
+                    textContentColor = QBXOnSurface,
+                    shape = RoundedCornerShape(16.dp),
+                    title = { Text("Neues Wallet", fontWeight = FontWeight.SemiBold) },
+                    text = {
+                        OutlinedTextField(
+                            value = newWalletName,
+                            onValueChange = { newWalletName = it },
+                            placeholder = { Text("Name (optional)", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = QBXPurple, unfocusedBorderColor = QBXDivider,
+                                focusedContainerColor = QBXSurface, unfocusedContainerColor = QBXSurface,
+                                cursorColor = QBXPurple, focusedTextColor = QBXOnSurface, unfocusedTextColor = QBXOnSurface
+                            )
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { onAddWallet(newWalletName); showAddDialog = false; newWalletName = "" },
+                            colors = ButtonDefaults.buttonColors(containerColor = QBXPurple),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text("Erstellen") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAddDialog = false; newWalletName = "" }) {
+                            Text("Abbrechen", color = QBXOnSurfaceDim)
+                        }
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
             // Balance card
             Box(
                 modifier = Modifier
@@ -355,6 +580,39 @@ fun WalletScreen(
                     }
                 }
                 Icon(Icons.Default.Shield, null, tint = QBXGreen.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+            }
+
+            // TX History
+            if (state.txHistory.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text("Letzte Transaktionen", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                Spacer(Modifier.height(8.dp))
+
+                val dateFormat = remember { SimpleDateFormat("dd.MM.yy HH:mm", Locale.GERMAN) }
+                state.txHistory.take(5).forEach { tx ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .solidCard()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.ArrowUpward, null, tint = QBXRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "An: ${tx.toAddress.take(12)}...${tx.toAddress.takeLast(6)}",
+                                fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurface
+                            )
+                            Text(dateFormat.format(Date(tx.timestamp)), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                        }
+                        Text(
+                            "-${"%.4f".format(tx.amount)} QBX",
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = QBXRed.copy(alpha = 0.8f)
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
             }
         }
 
@@ -846,7 +1104,13 @@ fun SettingsScreen(
     onConnect: (String) -> Unit,
     onExportBackup: () -> String,
     onDeleteWallet: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSetPin: (String) -> Unit,
+    onRemovePin: () -> Unit,
+    onRenameWallet: (String) -> Unit,
+    onDeleteActiveWallet: () -> Unit,
+    onSwitchWallet: (Int) -> Unit,
+    onAddWallet: (String) -> Unit
 ) {
     var rpcUrl by remember { mutableStateOf(state.rpcUrl) }
 
@@ -1110,10 +1374,282 @@ fun SettingsScreen(
                     Spacer(Modifier.height(20.dp))
                 }
 
+                // ===== Security / PIN Section =====
+                Text("Sicherheit", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                Spacer(Modifier.height(4.dp))
+                Text("App-Zugang mit PIN oder Biometrie schützen", fontSize = 13.sp, color = QBXOnSurfaceDim)
+                Spacer(Modifier.height(16.dp))
+
+                var showPinSetup by remember { mutableStateOf(false) }
+                var newPin by remember { mutableStateOf("") }
+                var confirmPin by remember { mutableStateOf("") }
+                var pinError by remember { mutableStateOf("") }
+
+                if (state.hasPin) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .solidCard()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Lock, null, tint = QBXGreen, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("PIN aktiv", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurface, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { onRemovePin() },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = QBXRed),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, QBXRed.copy(alpha = 0.5f))
+                    ) {
+                        Icon(Icons.Default.LockOpen, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("PIN entfernen", fontWeight = FontWeight.SemiBold)
+                    }
+                } else {
+                    Button(
+                        onClick = { showPinSetup = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
+                    ) {
+                        Icon(Icons.Default.Lock, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("PIN einrichten", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                if (showPinSetup) {
+                    AlertDialog(
+                        onDismissRequest = { showPinSetup = false; newPin = ""; confirmPin = ""; pinError = "" },
+                        containerColor = QBXSurface,
+                        titleContentColor = QBXOnSurface,
+                        textContentColor = QBXOnSurface,
+                        shape = RoundedCornerShape(16.dp),
+                        title = { Text("PIN einrichten (4 Ziffern)", fontWeight = FontWeight.SemiBold) },
+                        text = {
+                            Column {
+                                OutlinedTextField(
+                                    value = newPin, onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) newPin = it },
+                                    label = { Text("Neuer PIN") }, singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = QBXPurple, unfocusedBorderColor = QBXDivider,
+                                        focusedContainerColor = QBXSurface, unfocusedContainerColor = QBXSurface,
+                                        cursorColor = QBXPurple, focusedTextColor = QBXOnSurface, unfocusedTextColor = QBXOnSurface
+                                    )
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = confirmPin, onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) confirmPin = it },
+                                    label = { Text("PIN bestätigen") }, singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = QBXPurple, unfocusedBorderColor = QBXDivider,
+                                        focusedContainerColor = QBXSurface, unfocusedContainerColor = QBXSurface,
+                                        cursorColor = QBXPurple, focusedTextColor = QBXOnSurface, unfocusedTextColor = QBXOnSurface
+                                    )
+                                )
+                                if (pinError.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(pinError, color = QBXRed, fontSize = 12.sp)
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    when {
+                                        newPin.length != 4 -> pinError = "PIN muss 4 Ziffern haben"
+                                        newPin != confirmPin -> pinError = "PINs stimmen nicht überein"
+                                        else -> {
+                                            onSetPin(newPin)
+                                            showPinSetup = false; newPin = ""; confirmPin = ""; pinError = ""
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = QBXPurple),
+                                shape = RoundedCornerShape(12.dp)
+                            ) { Text("Speichern") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPinSetup = false; newPin = ""; confirmPin = ""; pinError = "" }) {
+                                Text("Abbrechen", color = QBXOnSurfaceDim)
+                            }
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(24.dp))
+                HorizontalDivider(color = QBXDivider)
+                Spacer(Modifier.height(20.dp))
+
+                // ===== Wallet Management Section =====
+                if (state.wallets.size > 0) {
+                    Text("Wallets verwalten", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${state.wallets.size} Wallet${if (state.wallets.size != 1) "s" else ""} vorhanden", fontSize = 13.sp, color = QBXOnSurfaceDim)
+                    Spacer(Modifier.height(16.dp))
+
+                    state.wallets.forEach { wallet ->
+                        val isActive = wallet.address == state.address
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isActive) QBXPurple.copy(alpha = 0.08f) else QBXSurface)
+                                .border(
+                                    1.dp,
+                                    if (isActive) QBXPurple.copy(alpha = 0.3f) else QBXDivider.copy(alpha = 0.3f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onSwitchWallet(wallet.id) }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isActive) {
+                                Icon(Icons.Default.RadioButtonChecked, null, tint = QBXPurple, modifier = Modifier.size(18.dp))
+                            } else {
+                                Icon(Icons.Default.RadioButtonUnchecked, null, tint = QBXOnSurfaceDim, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(wallet.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurface)
+                                Text(wallet.address.take(16) + "...", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurfaceDim)
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // Rename active wallet
+                    var showRename by remember { mutableStateOf(false) }
+                    var renameText by remember { mutableStateOf("") }
+                    var showAddWallet by remember { mutableStateOf(false) }
+                    var addWalletName by remember { mutableStateOf("") }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { showRename = true; renameText = state.activeWalletName },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp), tint = QBXOnSurface)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Umbenennen", color = QBXOnSurface, fontSize = 13.sp)
+                        }
+                        if (state.wallets.size > 1) {
+                            OutlinedButton(
+                                onClick = { onDeleteActiveWallet() },
+                                modifier = Modifier.weight(1f).height(44.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = QBXRed),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, QBXRed.copy(alpha = 0.5f))
+                            ) {
+                                Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Entfernen", fontSize = 13.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { showAddWallet = true },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Neues Wallet erstellen", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    if (showAddWallet) {
+                        AlertDialog(
+                            onDismissRequest = { showAddWallet = false; addWalletName = "" },
+                            containerColor = QBXSurface,
+                            titleContentColor = QBXOnSurface,
+                            textContentColor = QBXOnSurface,
+                            shape = RoundedCornerShape(16.dp),
+                            title = { Text("Neues Wallet", fontWeight = FontWeight.SemiBold) },
+                            text = {
+                                OutlinedTextField(
+                                    value = addWalletName, onValueChange = { addWalletName = it },
+                                    placeholder = { Text("Name (optional)", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                                    singleLine = true, shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = QBXPurple, unfocusedBorderColor = QBXDivider,
+                                        focusedContainerColor = QBXSurface, unfocusedContainerColor = QBXSurface,
+                                        cursorColor = QBXPurple, focusedTextColor = QBXOnSurface, unfocusedTextColor = QBXOnSurface
+                                    )
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = { onAddWallet(addWalletName); showAddWallet = false; addWalletName = "" },
+                                    colors = ButtonDefaults.buttonColors(containerColor = QBXPurple),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Erstellen") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showAddWallet = false; addWalletName = "" }) {
+                                    Text("Abbrechen", color = QBXOnSurfaceDim)
+                                }
+                            }
+                        )
+                    }
+
+                    if (showRename) {
+                        AlertDialog(
+                            onDismissRequest = { showRename = false },
+                            containerColor = QBXSurface,
+                            titleContentColor = QBXOnSurface,
+                            textContentColor = QBXOnSurface,
+                            shape = RoundedCornerShape(16.dp),
+                            title = { Text("Wallet umbenennen", fontWeight = FontWeight.SemiBold) },
+                            text = {
+                                OutlinedTextField(
+                                    value = renameText, onValueChange = { renameText = it },
+                                    singleLine = true, shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = QBXPurple, unfocusedBorderColor = QBXDivider,
+                                        focusedContainerColor = QBXSurface, unfocusedContainerColor = QBXSurface,
+                                        cursorColor = QBXPurple, focusedTextColor = QBXOnSurface, unfocusedTextColor = QBXOnSurface
+                                    )
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = { onRenameWallet(renameText); showRename = false },
+                                    colors = ButtonDefaults.buttonColors(containerColor = QBXPurple),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Speichern") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showRename = false }) { Text("Abbrechen", color = QBXOnSurfaceDim) }
+                            }
+                        )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = QBXDivider)
+                    Spacer(Modifier.height(20.dp))
+                }
+
                 // About section
                 Text("Über", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
                 Spacer(Modifier.height(10.dp))
-                Text("Q-BitX Wallet v1.0.2", fontSize = 15.sp, color = QBXOnSurface)
+                Text("Q-BitX Wallet v1.1.0", fontSize = 15.sp, color = QBXOnSurface)
                 Spacer(Modifier.height(4.dp))
                 Text("Post-Quantum Light Wallet · Dilithium3 / ML-DSA-65", fontSize = 13.sp, color = QBXOnSurfaceDim)
 

@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.qbitx.wallet.crypto.TransactionBuilder
 import org.qbitx.wallet.data.KeyManager
+import org.qbitx.wallet.data.TxRecord
+import org.qbitx.wallet.data.WalletInfo
 import org.qbitx.wallet.network.NodeRpcClient
 import org.qbitx.wallet.network.RpcException
 
@@ -23,20 +25,25 @@ data class WalletUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val lastTxId: String? = null,
-    val rpcUrl: String = "https://qbitx.solopool.site/"
+    val rpcUrl: String = "https://qbitx.solopool.site/",
+    val wallets: List<WalletInfo> = emptyList(),
+    val activeWalletName: String = "",
+    val isLocked: Boolean = false,
+    val hasPin: Boolean = false,
+    val txHistory: List<TxRecord> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
 
     private val keyManager = KeyManager(application)
-    val rpcClient = NodeRpcClient(
-        rpcUrl = "https://qbitx.solopool.site/"
-    )
+    val rpcClient = NodeRpcClient(rpcUrl = "https://qbitx.solopool.site/")
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
 
     init {
+        val hasPIN = keyManager.hasPin()
+        _uiState.value = _uiState.value.copy(isLocked = hasPIN, hasPin = hasPIN)
         checkWallet()
         autoConnect()
     }
@@ -46,36 +53,35 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 val info = rpcClient.getBlockchainInfo()
                 _uiState.value = _uiState.value.copy(
-                    nodeConnected = true,
-                    chain = info.chain,
-                    blockHeight = info.blocks
+                    nodeConnected = true, chain = info.chain, blockHeight = info.blocks
                 )
                 refreshBalance()
-            } catch (_: Exception) {
-                // Proxy nicht erreichbar — User kann manuell verbinden
-            }
+            } catch (_: Exception) {}
         }
     }
 
     private fun checkWallet() {
-        val hasWallet = keyManager.hasWallet()
+        val has = keyManager.hasWallet()
         val address = keyManager.getAddress() ?: ""
+        val wallets = keyManager.listWallets()
+        val activeId = keyManager.getActiveWalletId()
+        val activeName = wallets.find { it.id == activeId }?.name ?: ""
+        val txHistory = keyManager.getTxHistoryForActiveWallet()
         _uiState.value = _uiState.value.copy(
-            hasWallet = hasWallet,
-            address = address
+            hasWallet = has, address = address,
+            wallets = wallets, activeWalletName = activeName,
+            txHistory = txHistory
         )
     }
 
-    fun createWallet() {
+    fun createWallet(name: String = "") {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                val address = keyManager.createWallet()
-                _uiState.value = _uiState.value.copy(
-                    hasWallet = true,
-                    address = address,
-                    isLoading = false
-                )
+                keyManager.createWallet(name)
+                checkWallet()
+                _uiState.value = _uiState.value.copy(isLoading = false)
+                refreshBalance()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -85,26 +91,47 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun switchWallet(id: Int) {
+        keyManager.setActiveWallet(id)
+        checkWallet()
+        _uiState.value = _uiState.value.copy(balance = 0.0, unconfirmedBalance = 0.0)
+        viewModelScope.launch { refreshBalance() }
+    }
+
+    fun renameWallet(newName: String) {
+        val id = keyManager.getActiveWalletId()
+        if (id >= 0) {
+            keyManager.renameWallet(id, newName)
+            checkWallet()
+        }
+    }
+
+    fun deleteActiveWallet() {
+        val id = keyManager.getActiveWalletId()
+        if (id >= 0) {
+            keyManager.deleteWallet(id)
+            checkWallet()
+            _uiState.value = _uiState.value.copy(balance = 0.0, unconfirmedBalance = 0.0)
+            if (_uiState.value.hasWallet) {
+                viewModelScope.launch { refreshBalance() }
+            }
+        }
+    }
+
     fun connectToNode(rpcUrl: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isLoading = true, error = null,
-                rpcUrl = rpcUrl
-            )
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, rpcUrl = rpcUrl)
             rpcClient.configure(rpcUrl)
             try {
                 val info = rpcClient.getBlockchainInfo()
                 _uiState.value = _uiState.value.copy(
-                    nodeConnected = true,
-                    chain = info.chain,
-                    blockHeight = info.blocks,
-                    isLoading = false
+                    nodeConnected = true, chain = info.chain,
+                    blockHeight = info.blocks, isLoading = false
                 )
                 refreshBalance()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    nodeConnected = false,
-                    isLoading = false,
+                    nodeConnected = false, isLoading = false,
                     error = "Node-Verbindung fehlgeschlagen: ${e.message}"
                 )
             }
@@ -118,23 +145,15 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (address.isNotEmpty()) {
                     val scanResult = rpcClient.scanTxOutSet(address)
                     _uiState.value = _uiState.value.copy(
-                        balance = scanResult.totalAmount,
-                        unconfirmedBalance = 0.0
+                        balance = scanResult.totalAmount, unconfirmedBalance = 0.0
                     )
                 }
                 val info = rpcClient.getBlockchainInfo()
                 _uiState.value = _uiState.value.copy(blockHeight = info.blocks)
-            } catch (_: Exception) {
-                // Silently fail — balance unavailable
-            }
+            } catch (_: Exception) {}
         }
     }
 
-    /**
-     * Send QBX using fully local Dilithium signing.
-     * Flow: scantxoutset → createrawtransaction → local sign → sendrawtransaction
-     * Private keys NEVER leave the device.
-     */
     fun sendQBX(toAddress: String, amount: Double, feePolicy: String = "normal") {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, lastTxId = null)
@@ -143,13 +162,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val publicKey = keyManager.getPublicKey()
                     ?: throw Exception("Kein Wallet vorhanden")
 
-                // 1. Get UTXOs for our address
                 val scanResult = rpcClient.scanTxOutSet(myAddress)
-                if (scanResult.unspents.isEmpty()) {
-                    throw Exception("Keine verfügbaren UTXOs")
-                }
+                if (scanResult.unspents.isEmpty()) throw Exception("Keine verfügbaren UTXOs")
 
-                // 2. Select UTXOs and calculate fee
                 val feeRate = TransactionBuilder.feeRateForPolicy(feePolicy)
                 val amountSat = Math.round(amount * 1e8)
 
@@ -163,25 +178,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     if (totalInputSat >= amountSat + fee) break
                 }
 
-                // Check if we can afford it (try 2-output first, then 1-output)
                 val fee2out = TransactionBuilder.estimateFee(selected.size, 2, feeRate)
                 val fee1out = TransactionBuilder.estimateFee(selected.size, 1, feeRate)
                 val changeSat = totalInputSat - amountSat - fee2out
 
                 val actualChange: Long
-
                 if (changeSat >= 546) {
-                    // Change worth keeping
                     actualChange = changeSat
                 } else if (totalInputSat >= amountSat + fee1out) {
-                    // Change is dust — absorb into fee
                     actualChange = 0
                 } else {
                     val needed = (amountSat + fee1out) / 1e8
                     throw Exception("Nicht genug Guthaben (benötigt: ${"%.8f".format(needed)} QBX)")
                 }
 
-                // 3. Create unsigned transaction via proxy
                 val recipientAmountQbx = amountSat / 1e8
                 val changeAmountQbx = if (actualChange > 0) actualChange / 1e8 else null
 
@@ -193,7 +203,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     changeAmount = changeAmountQbx
                 )
 
-                // 4. Sign LOCALLY with Dilithium — keys never leave the phone
                 val scriptPubKeys = mutableMapOf<Int, String>()
                 selected.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
 
@@ -204,50 +213,37 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     publicKey = publicKey
                 )
 
-                // 5. Broadcast signed transaction
                 val txid = rpcClient.sendRawTransaction(signedHex)
 
+                keyManager.addTxRecord(txid, toAddress, amount, feePolicy)
+
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    lastTxId = txid
+                    isLoading = false, lastTxId = txid,
+                    txHistory = keyManager.getTxHistoryForActiveWallet()
                 )
                 refreshBalance()
             } catch (e: RpcException) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = e.message
-                )
+                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "Senden fehlgeschlagen: ${e.message}"
+                    isLoading = false, error = "Senden fehlgeschlagen: ${e.message}"
                 )
             }
         }
     }
 
-    fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    fun clearLastTx() {
-        _uiState.value = _uiState.value.copy(lastTxId = null)
-    }
-
+    fun clearError() { _uiState.value = _uiState.value.copy(error = null) }
+    fun clearLastTx() { _uiState.value = _uiState.value.copy(lastTxId = null) }
     fun getPublicKeyHex(): String = keyManager.exportPublicKeyHex() ?: ""
-
     fun exportBackup(): String = keyManager.exportBackup() ?: ""
 
-    fun importWallet(backup: String) {
+    fun importWallet(backup: String, name: String = "") {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                val address = keyManager.importWallet(backup)
-                _uiState.value = _uiState.value.copy(
-                    hasWallet = true,
-                    address = address,
-                    isLoading = false
-                )
+                keyManager.importWallet(backup, name)
+                checkWallet()
+                _uiState.value = _uiState.value.copy(isLoading = false)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -258,7 +254,25 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteWallet() {
-        keyManager.deleteWallet()
-        _uiState.value = WalletUiState()
+        keyManager.deleteAllWallets()
+        _uiState.value = WalletUiState(hasPin = keyManager.hasPin())
+    }
+
+    // ---- PIN ----
+
+    fun verifyPin(pin: String): Boolean = keyManager.verifyPin(pin)
+
+    fun unlock() {
+        _uiState.value = _uiState.value.copy(isLocked = false)
+    }
+
+    fun setPin(pin: String) {
+        keyManager.setPin(pin)
+        _uiState.value = _uiState.value.copy(hasPin = true)
+    }
+
+    fun removePin() {
+        keyManager.removePin()
+        _uiState.value = _uiState.value.copy(hasPin = false)
     }
 }
