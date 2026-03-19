@@ -155,11 +155,14 @@ class KeyManager(context: Context) {
     }
 
     fun importWallet(backup: String, name: String = ""): WalletInfo {
-        val parts = backup.trim().split(":")
-        require(parts.size == 2) { "Ungültiges Backup-Format" }
+        val cleaned = backup.replace("\\s".toRegex(), "")
+        val parts = cleaned.split(":")
+        require(parts.size == 2) { "Ungültiges Backup-Format (erwartet privkey:pubkey)" }
 
-        val privkey = Base64.decode(parts[0], Base64.NO_WRAP)
-        val pubkey = Base64.decode(parts[1], Base64.NO_WRAP)
+        val privB64 = parts[0]
+        val pubB64 = parts[1]
+        val privkey = Base64.decode(privB64, Base64.DEFAULT)
+        val pubkey = Base64.decode(pubB64, Base64.DEFAULT)
 
         require(privkey.size == dilithium.getSecretKeyBytes()) {
             "Ungültige Private-Key-Länge: ${privkey.size}"
@@ -181,8 +184,8 @@ class KeyManager(context: Context) {
         val ids = walletIds() + id
 
         prefs.edit()
-            .putString("w${id}_pub", parts[1])
-            .putString("w${id}_priv", parts[0])
+            .putString("w${id}_pub", pubB64)
+            .putString("w${id}_priv", privB64)
             .putString("w${id}_name", walletName)
             .putString("wallet_ids", ids.joinToString(","))
             .putInt("next_id", id + 1)

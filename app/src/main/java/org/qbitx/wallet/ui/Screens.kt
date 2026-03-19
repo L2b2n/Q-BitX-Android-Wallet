@@ -320,7 +320,16 @@ fun WalletScreen(
                     enabled = importKey.contains(":") && !state.isLoading,
                     colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
                 ) {
-                    Text(stringResource(R.string.btn_import), fontWeight = FontWeight.SemiBold)
+                    if (state.isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = QBXOnSurface, strokeWidth = 2.dp)
+                    } else {
+                        Text(stringResource(R.string.btn_import), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                state.error?.let { error ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(error, color = QBXRed, fontSize = 13.sp)
                 }
             }
 
