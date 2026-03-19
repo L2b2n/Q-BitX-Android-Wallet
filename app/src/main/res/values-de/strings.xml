@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Q-BitX Wallet</string>
+
+    <!-- Lock Screen -->
+    <string name="lock_title">Q-BitX Wallet</string>
+    <string name="lock_enter_pin">PIN eingeben</string>
+    <string name="lock_wrong_pin">Falscher PIN</string>
+    <string name="lock_biometric_title">Q-BitX Wallet</string>
+    <string name="lock_biometric_subtitle">Entsperre dein Wallet</string>
+    <string name="lock_biometric_negative">PIN eingeben</string>
+
+    <!-- Wallet Screen - No wallet -->
+    <string name="welcome_title">Willkommen bei Q-BitX</string>
+    <string name="welcome_subtitle">Quantencomputer-resistente\nKryptowährung der Zukunft</string>
+    <string name="btn_create_wallet">Wallet erstellen</string>
+    <string name="btn_import_wallet">Wallet importieren</string>
+    <string name="import_placeholder">Backup-Key einfügen…</string>
+    <string name="btn_import">Importieren</string>
+    <string name="feature_dilithium">Dilithium3 / ML-DSA-65</string>
+    <string name="feature_dilithium_sub">Post-Quantum Signaturen</string>
+    <string name="feature_encrypted">AES-256 verschlüsselt</string>
+    <string name="feature_encrypted_sub">Schlüssel sicher gespeichert</string>
+    <string name="feature_pow">SHA-256d Proof-of-Work</string>
+    <string name="feature_pow_sub">Bewährter Konsens-Mechanismus</string>
+
+    <!-- Wallet Screen - Dashboard -->
+    <string name="wallet_count">%d Wallet</string>
+    <string name="wallet_count_plural">%d Wallets</string>
+    <string name="new_wallet_title">Neues Wallet</string>
+    <string name="new_wallet_name_hint">Name (optional)</string>
+    <string name="btn_create">Erstellen</string>
+    <string name="btn_cancel">Abbrechen</string>
+    <string name="balance_label">Guthaben</string>
+    <string name="block_label">Block %d</string>
+    <string name="unconfirmed_label">Unbestätigt: %s QBX</string>
+    <string name="btn_send">Senden</string>
+    <string name="btn_receive">Empfangen</string>
+    <string name="btn_refresh">Refresh</string>
+    <string name="pq_address">PQ-Adresse</string>
+    <string name="connected">Verbunden</string>
+    <string name="not_connected">Nicht verbunden</string>
+    <string name="recent_tx">Letzte Transaktionen</string>
+    <string name="tx_to">An: %s</string>
+    <string name="copied">Kopiert!</string>
+
+    <!-- Send Screen -->
+    <string name="send_title">QBX Senden</string>
+    <string name="send_back">Zurück</string>
+    <string name="send_available">Verfügbar: %s QBX</string>
+    <string name="send_recipient">Empfänger</string>
+    <string name="send_address_hint">M… Adresse eingeben</string>
+    <string name="send_scan_qr">QR scannen</string>
+    <string name="send_qr_prompt">QR-Code scannen</string>
+    <string name="send_amount">Betrag</string>
+    <string name="send_fees">Gebühren</string>
+    <string name="fee_low">Niedrig</string>
+    <string name="fee_normal">Normal</string>
+    <string name="fee_high">Hoch</string>
+    <string name="confirm_title">Transaktion bestätigen</string>
+    <string name="confirm_to">An:</string>
+    <string name="confirm_amount">Betrag:</string>
+    <string name="confirm_fees">Gebühren: %s</string>
+    <string name="btn_confirm">Bestätigen</string>
+    <string name="tx_sent">Transaktion gesendet!</string>
+
+    <!-- Receive Screen -->
+    <string name="receive_title">QBX Empfangen</string>
+    <string name="receive_your_address">Deine PQ-Adresse</string>
+    <string name="receive_copy_address">Adresse kopieren</string>
+    <string name="receive_secured">Dilithium3 / ML-DSA-65 gesichert</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_rpc_title">RPC Verbindung</string>
+    <string name="settings_rpc_subtitle">Stateless RPC — keine Wallet-Daten auf dem Server</string>
+    <string name="settings_connect">Verbinden</string>
+    <string name="settings_connected">Verbunden: %1$s · Block #%2$s</string>
+    <string name="settings_backup_title">Wallet-Backup</string>
+    <string name="settings_backup_subtitle">Speichere deinen Backup-Key um das Wallet wiederherstellen zu können</string>
+    <string name="settings_show_backup">Backup-Key anzeigen</string>
+    <string name="settings_never_share">Niemals teilen! Wer diesen Key hat, kontrolliert dein Wallet.</string>
+    <string name="settings_copy_backup">Backup-Key kopieren</string>
+    <string name="settings_danger_zone">Gefahrenzone</string>
+    <string name="settings_delete_wallet">Wallet löschen</string>
+    <string name="settings_delete_confirm_title">Wallet wirklich löschen?</string>
+    <string name="settings_delete_confirm_text">Dein Wallet wird unwiderruflich gelöscht. Stelle sicher, dass du deinen Backup-Key gespeichert hast!</string>
+    <string name="settings_delete_yes">Ja, löschen</string>
+
+    <!-- Security / PIN -->
+    <string name="settings_security">Sicherheit</string>
+    <string name="settings_security_subtitle">App-Zugang mit PIN oder Biometrie schützen</string>
+    <string name="settings_pin_active">PIN aktiv</string>
+    <string name="settings_remove_pin">PIN entfernen</string>
+    <string name="settings_setup_pin">PIN einrichten</string>
+    <string name="settings_setup_pin_title">PIN einrichten (4 Ziffern)</string>
+    <string name="settings_new_pin">Neuer PIN</string>
+    <string name="settings_confirm_pin">PIN bestätigen</string>
+    <string name="settings_pin_error_length">PIN muss 4 Ziffern haben</string>
+    <string name="settings_pin_error_mismatch">PINs stimmen nicht überein</string>
+    <string name="btn_save">Speichern</string>
+
+    <!-- Wallet Management -->
+    <string name="settings_manage_wallets">Wallets verwalten</string>
+    <string name="settings_wallets_count">%d Wallet(s) vorhanden</string>
+    <string name="settings_rename">Umbenennen</string>
+    <string name="settings_remove">Entfernen</string>
+    <string name="settings_create_wallet">Neues Wallet erstellen</string>
+    <string name="settings_new_wallet">Neues Wallet</string>
+    <string name="settings_rename_wallet">Wallet umbenennen</string>
+
+    <!-- About -->
+    <string name="settings_about">Über</string>
+    <string name="settings_version">Q-BitX Wallet v1.2.0</string>
+    <string name="settings_subtitle">Post-Quantum Light Wallet · Dilithium3 / ML-DSA-65</string>
+</resources>
