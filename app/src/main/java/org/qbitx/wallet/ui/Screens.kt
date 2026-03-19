@@ -70,6 +70,7 @@ fun WalletScreen(
             .fillMaxSize()
             .background(QBXBackground)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -443,6 +444,7 @@ fun SendScreen(
             .fillMaxSize()
             .background(QBXBackground)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
     ) {
         // Top bar
@@ -709,7 +711,8 @@ fun ReceiveScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(QBXBackground)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top bar
@@ -868,6 +871,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
             // Top bar
