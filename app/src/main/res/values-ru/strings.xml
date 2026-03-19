@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Q-BitX Кошелёк</string>
+
+    <!-- Lock Screen -->
+    <string name="lock_title">Q-BitX Кошелёк</string>
+    <string name="lock_enter_pin">Введите PIN</string>
+    <string name="lock_wrong_pin">Неверный PIN</string>
+    <string name="lock_biometric_title">Q-BitX Кошелёк</string>
+    <string name="lock_biometric_subtitle">Разблокируйте кошелёк</string>
+    <string name="lock_biometric_negative">Ввести PIN</string>
+
+    <!-- Wallet Screen - No wallet -->
+    <string name="welcome_title">Добро пожаловать в Q-BitX</string>
+    <string name="welcome_subtitle">Квантово-устойчивая\nкриптовалюта будущего</string>
+    <string name="btn_create_wallet">Создать кошелёк</string>
+    <string name="btn_import_wallet">Импортировать кошелёк</string>
+    <string name="import_placeholder">Вставьте ключ резервной копии…</string>
+    <string name="btn_import">Импорт</string>
+    <string name="feature_dilithium">Dilithium3 / ML-DSA-65</string>
+    <string name="feature_dilithium_sub">Постквантовые подписи</string>
+    <string name="feature_encrypted">AES-256 шифрование</string>
+    <string name="feature_encrypted_sub">Ключи хранятся безопасно</string>
+    <string name="feature_pow">SHA-256d Proof-of-Work</string>
+    <string name="feature_pow_sub">Проверенный механизм консенсуса</string>
+
+    <!-- Wallet Screen - Dashboard -->
+    <string name="wallet_count">%d кошелёк</string>
+    <string name="wallet_count_plural">%d кошельков</string>
+    <string name="new_wallet_title">Новый кошелёк</string>
+    <string name="new_wallet_name_hint">Название (необязательно)</string>
+    <string name="btn_create">Создать</string>
+    <string name="btn_cancel">Отмена</string>
+    <string name="balance_label">Баланс</string>
+    <string name="block_label">Блок %d</string>
+    <string name="unconfirmed_label">Не подтверждено: %s QBX</string>
+    <string name="btn_send">Отправить</string>
+    <string name="btn_receive">Получить</string>
+    <string name="btn_refresh">Обновить</string>
+    <string name="pq_address">PQ-адрес</string>
+    <string name="connected">Подключено</string>
+    <string name="not_connected">Не подключено</string>
+    <string name="recent_tx">Последние транзакции</string>
+    <string name="tx_to">Кому: %s</string>
+    <string name="copied">Скопировано!</string>
+
+    <!-- Send Screen -->
+    <string name="send_title">Отправить QBX</string>
+    <string name="send_back">Назад</string>
+    <string name="send_available">Доступно: %s QBX</string>
+    <string name="send_recipient">Получатель</string>
+    <string name="send_address_hint">Введите M… адрес</string>
+    <string name="send_scan_qr">Сканировать QR</string>
+    <string name="send_qr_prompt">Сканируйте QR-код</string>
+    <string name="send_amount">Сумма</string>
+    <string name="send_fees">Комиссия</string>
+    <string name="fee_low">Низкая</string>
+    <string name="fee_normal">Обычная</string>
+    <string name="fee_high">Высокая</string>
+    <string name="confirm_title">Подтвердить транзакцию</string>
+    <string name="confirm_to">Кому:</string>
+    <string name="confirm_amount">Сумма:</string>
+    <string name="confirm_fees">Комиссия: %s</string>
+    <string name="btn_confirm">Подтвердить</string>
+    <string name="tx_sent">Транзакция отправлена!</string>
+
+    <!-- Receive Screen -->
+    <string name="receive_title">Получить QBX</string>
+    <string name="receive_your_address">Ваш PQ-адрес</string>
+    <string name="receive_copy_address">Копировать адрес</string>
+    <string name="receive_secured">Dilithium3 / ML-DSA-65 защита</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_rpc_title">RPC-соединение</string>
+    <string name="settings_rpc_subtitle">Stateless RPC — данные кошелька не хранятся на сервере</string>
+    <string name="settings_connect">Подключить</string>
+    <string name="settings_connected">Подключено: %1$s · Блок #%2$s</string>
+    <string name="settings_backup_title">Резервная копия</string>
+    <string name="settings_backup_subtitle">Сохраните ключ для восстановления кошелька</string>
+    <string name="settings_show_backup">Показать ключ</string>
+    <string name="settings_never_share">Никогда не делитесь! Владелец ключа контролирует кошелёк.</string>
+    <string name="settings_copy_backup">Копировать ключ</string>
+    <string name="settings_danger_zone">Опасная зона</string>
+    <string name="settings_delete_wallet">Удалить кошелёк</string>
+    <string name="settings_delete_confirm_title">Удалить кошелёк?</string>
+    <string name="settings_delete_confirm_text">Кошелёк будет удалён безвозвратно. Убедитесь, что вы сохранили ключ резервной копии!</string>
+    <string name="settings_delete_yes">Да, удалить</string>
+
+    <!-- Security / PIN -->
+    <string name="settings_security">Безопасность</string>
+    <string name="settings_security_subtitle">Защитите доступ с помощью PIN или биометрии</string>
+    <string name="settings_pin_active">PIN активен</string>
+    <string name="settings_remove_pin">Удалить PIN</string>
+    <string name="settings_setup_pin">Установить PIN</string>
+    <string name="settings_setup_pin_title">Установить PIN (4 цифры)</string>
+    <string name="settings_new_pin">Новый PIN</string>
+    <string name="settings_confirm_pin">Подтвердите PIN</string>
+    <string name="settings_pin_error_length">PIN должен содержать 4 цифры</string>
+    <string name="settings_pin_error_mismatch">PIN-коды не совпадают</string>
+    <string name="btn_save">Сохранить</string>
+
+    <!-- Wallet Management -->
+    <string name="settings_manage_wallets">Управление кошельками</string>
+    <string name="settings_wallets_count">%d кошелёк(ов)</string>
+    <string name="settings_rename">Переименовать</string>
+    <string name="settings_remove">Удалить</string>
+    <string name="settings_create_wallet">Создать новый кошелёк</string>
+    <string name="settings_new_wallet">Новый кошелёк</string>
+    <string name="settings_rename_wallet">Переименовать кошелёк</string>
+
+    <!-- About -->
+    <string name="settings_about">О приложении</string>
+    <string name="settings_version">Q-BitX Кошелёк v1.2.0</string>
+    <string name="settings_subtitle">Постквантовый лёгкий кошелёк · Dilithium3 / ML-DSA-65</string>
+</resources>
