@@ -502,10 +502,10 @@ fun WalletScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // Action buttons row
+            // Action buttons row (compact)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Send
                 Column(
@@ -513,12 +513,12 @@ fun WalletScreen(
                         .weight(1f)
                         .solidCard()
                         .clickable(enabled = state.nodeConnected) { onNavigateToSend() }
-                        .padding(vertical = 16.dp),
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.ArrowUpward, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.btn_send), fontSize = 13.sp, color = QBXOnSurface)
+                    Icon(Icons.Default.ArrowUpward, null, tint = QBXPurple, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(R.string.btn_send), fontSize = 11.sp, color = QBXOnSurface)
                 }
 
                 // Receive
@@ -527,12 +527,12 @@ fun WalletScreen(
                         .weight(1f)
                         .solidCard()
                         .clickable { onNavigateToReceive() }
-                        .padding(vertical = 16.dp),
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.ArrowDownward, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.btn_receive), fontSize = 13.sp, color = QBXOnSurface)
+                    Icon(Icons.Default.ArrowDownward, null, tint = QBXPurple, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(R.string.btn_receive), fontSize = 11.sp, color = QBXOnSurface)
                 }
 
                 // Refresh
@@ -541,12 +541,12 @@ fun WalletScreen(
                         .weight(1f)
                         .solidCard()
                         .clickable { onRefresh() }
-                        .padding(vertical = 16.dp),
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.Refresh, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.btn_refresh), fontSize = 13.sp, color = QBXOnSurface)
+                    Icon(Icons.Default.Refresh, null, tint = QBXPurple, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(R.string.btn_refresh), fontSize = 11.sp, color = QBXOnSurface)
                 }
 
                 // History
@@ -555,12 +555,12 @@ fun WalletScreen(
                         .weight(1f)
                         .solidCard()
                         .clickable { onNavigateToHistory() }
-                        .padding(vertical = 16.dp),
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.List, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.btn_history), fontSize = 13.sp, color = QBXOnSurface)
+                    Icon(Icons.Default.List, null, tint = QBXPurple, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(R.string.btn_history), fontSize = 11.sp, color = QBXOnSurface)
                 }
             }
 
