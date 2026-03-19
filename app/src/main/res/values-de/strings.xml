@@ -41,7 +41,16 @@
     <string name="connected">Verbunden</string>
     <string name="not_connected">Nicht verbunden</string>
     <string name="recent_tx">Letzte Transaktionen</string>
+    <string name="view_all_tx">Alle anzeigen</string>
     <string name="tx_to">An: %s</string>
+
+    <!-- History Screen -->
+    <string name="history_title">Transaktionsverlauf</string>
+    <string name="history_count">%d Transaktionen</string>
+    <string name="history_empty">Noch keine Transaktionen.\nGesendete Transaktionen erscheinen hier.</string>
+    <string name="history_to">An:</string>
+    <string name="history_fee">Gebühr</string>
+    <string name="history_date">Datum</string>
     <string name="copied">Kopiert!</string>
 
     <!-- Send Screen -->

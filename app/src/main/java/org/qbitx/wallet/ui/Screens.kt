@@ -193,6 +193,7 @@ fun WalletScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToReceive: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToHistory: () -> Unit,
     onRefresh: () -> Unit,
     onSwitchWallet: (Int) -> Unit,
     onAddWallet: (String) -> Unit
@@ -588,7 +589,16 @@ fun WalletScreen(
             // TX History
             if (state.txHistory.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                Text(stringResource(R.string.recent_tx), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stringResource(R.string.recent_tx), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                    TextButton(onClick = onNavigateToHistory) {
+                        Text(stringResource(R.string.view_all_tx), fontSize = 12.sp, color = QBXPurple)
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
 
                 val dateFormat = remember { SimpleDateFormat("dd.MM.yy HH:mm", Locale.GERMAN) }
@@ -1096,6 +1106,127 @@ fun generateQrCode(text: String): Bitmap? {
         bitmap
     } catch (_: Exception) {
         null
+    }
+}
+
+// ==================== HISTORY SCREEN ====================
+
+@Composable
+fun HistoryScreen(
+    state: WalletUiState,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        // Top bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, stringResource(R.string.send_back), tint = QBXOnSurface)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.history_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+            Spacer(Modifier.weight(1f))
+            Text(
+                stringResource(R.string.history_count, state.txHistory.size),
+                fontSize = 13.sp, color = QBXOnSurfaceDim
+            )
+        }
+
+        if (state.txHistory.isEmpty()) {
+            // Empty state
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    Icons.Default.Receipt,
+                    null,
+                    tint = QBXOnSurfaceDim.copy(alpha = 0.3f),
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    stringResource(R.string.history_empty),
+                    fontSize = 15.sp,
+                    color = QBXOnSurfaceDim,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+            ) {
+                items(state.txHistory.size) { index ->
+                    val tx = state.txHistory[index]
+                    val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(QBXSurface)
+                            .border(1.dp, QBXDivider.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ArrowUpward, null, tint = QBXRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "-${"%.8f".format(tx.amount)} QBX",
+                                fontSize = 16.sp, fontWeight = FontWeight.Bold, color = QBXRed.copy(alpha = 0.8f)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(stringResource(R.string.history_to), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                        Text(
+                            tx.toAddress,
+                            fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurface,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(stringResource(R.string.history_fee), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                                Text(tx.fee, fontSize = 12.sp, color = QBXOnSurface)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(stringResource(R.string.history_date), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                                Text(dateFormat.format(Date(tx.timestamp)), fontSize = 12.sp, color = QBXOnSurface)
+                            }
+                        }
+                        if (tx.txid.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("TXID", fontSize = 11.sp, color = QBXOnSurfaceDim)
+                            Text(
+                                tx.txid,
+                                fontSize = 10.sp, fontFamily = FontFamily.Monospace,
+                                color = QBXOnSurfaceDim.copy(alpha = 0.7f),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

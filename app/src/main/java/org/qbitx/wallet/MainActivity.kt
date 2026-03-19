@@ -41,6 +41,7 @@ class MainActivity : FragmentActivity() {
                             onNavigateToSend = { currentScreen = "send" },
                             onNavigateToReceive = { currentScreen = "receive" },
                             onNavigateToSettings = { currentScreen = "settings" },
+                            onNavigateToHistory = { currentScreen = "history" },
                             onRefresh = { viewModel.refreshBalance() },
                             onSwitchWallet = { id -> viewModel.switchWallet(id) },
                             onAddWallet = { name -> viewModel.createWallet(name) }
@@ -52,6 +53,10 @@ class MainActivity : FragmentActivity() {
                         )
                         "receive" -> ReceiveScreen(
                             address = state.address,
+                            onBack = { currentScreen = "home" }
+                        )
+                        "history" -> HistoryScreen(
+                            state = state,
                             onBack = { currentScreen = "home" }
                         )
                         "settings" -> SettingsScreen(

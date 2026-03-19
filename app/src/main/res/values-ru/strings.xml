@@ -41,7 +41,16 @@
     <string name="connected">Подключено</string>
     <string name="not_connected">Не подключено</string>
     <string name="recent_tx">Последние транзакции</string>
+    <string name="view_all_tx">Показать все</string>
     <string name="tx_to">Кому: %s</string>
+
+    <!-- History Screen -->
+    <string name="history_title">История транзакций</string>
+    <string name="history_count">%d транзакций</string>
+    <string name="history_empty">Транзакций пока нет.\nОтправленные транзакции появятся здесь.</string>
+    <string name="history_to">Кому:</string>
+    <string name="history_fee">Комиссия</string>
+    <string name="history_date">Дата</string>
     <string name="copied">Скопировано!</string>
 
     <!-- Send Screen -->

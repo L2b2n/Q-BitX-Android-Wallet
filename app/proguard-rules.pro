@@ -9,3 +9,11 @@
 # Gson
 -keepattributes Signature
 -keep class org.qbitx.wallet.network.** { *; }
+
+# Tink / security-crypto missing annotations
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn com.google.api.client.http.**
+
+# Keep data classes used by Gson
+-keep class org.qbitx.wallet.data.** { *; }
