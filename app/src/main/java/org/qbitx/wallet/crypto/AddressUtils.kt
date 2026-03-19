@@ -72,14 +72,9 @@ object AddressUtils {
         return md.digest(md.digest(data))
     }
 
-    /** Simple RIPEMD-160 implementation (pure Kotlin, no BouncyCastle needed). */
-    private fun ripemd160(input: ByteArray): ByteArray {
-        // Use Android's built-in if available, otherwise use pure-Kotlin implementation
-        return try {
-            MessageDigest.getInstance("RIPEMD160").digest(input)
-        } catch (_: Exception) {
-            ripemd160Pure(input)
-        }
+    /** RIPEMD-160 hash. Always uses our verified pure-Kotlin implementation. */
+    fun ripemd160(input: ByteArray): ByteArray {
+        return ripemd160Pure(input)
     }
 
     // =============== Pure-Kotlin RIPEMD-160 ===============
@@ -159,7 +154,7 @@ object AddressUtils {
                 val kr: Int
                 when (j / 16) {
                     0 -> { fl = bl xor cl xor dl;              kl = 0x00000000
-                           fr = br xor (cr or dl.inv());       kr = 0x50A28BE6.toInt() }
+                           fr = br xor (cr or dr.inv());       kr = 0x50A28BE6.toInt() }
                     1 -> { fl = (bl and cl) or (bl.inv() and dl); kl = 0x5A827999
                            fr = (br and dr) or (cr and dr.inv()); kr = 0x5C4DD124 }
                     2 -> { fl = (bl or cl.inv()) xor dl;       kl = 0x6ED9EBA1
