@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
                     "home" -> WalletScreen(
                         state = state,
                         onCreateWallet = { viewModel.createWallet() },
+                        onImportWallet = { backup -> viewModel.importWallet(backup) },
                         onNavigateToSend = { currentScreen = "send" },
                         onNavigateToReceive = { currentScreen = "receive" },
                         onNavigateToSettings = { currentScreen = "settings" },
@@ -43,8 +44,11 @@ class MainActivity : ComponentActivity() {
                     )
                     "settings" -> SettingsScreen(
                         state = state,
-                        onConnect = { host, port, user, pass, wallet ->
-                            viewModel.connectToNode(host, port, user, pass, wallet)
+                        onConnect = { url -> viewModel.connectToNode(url) },
+                        onExportBackup = { viewModel.exportBackup() },
+                        onDeleteWallet = {
+                            viewModel.deleteWallet()
+                            currentScreen = "home"
                         },
                         onBack = { currentScreen = "home" }
                     )

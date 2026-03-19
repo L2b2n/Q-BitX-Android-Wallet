@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "org.qbitx.wallet"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.qbitx.wallet"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "0.2.0"
 
@@ -57,7 +57,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     packaging {
@@ -69,7 +69,7 @@ android {
 
 dependencies {
     // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
 
     // Core
@@ -95,8 +95,9 @@ dependencies {
     // Security (encrypted key storage)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // QR code generation
+    // QR code generation + scanning
     implementation("com.google.zxing:core:3.5.2")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

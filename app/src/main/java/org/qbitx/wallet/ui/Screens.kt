@@ -2,21 +2,27 @@ package org.qbitx.wallet.ui
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -30,7 +36,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import org.qbitx.wallet.ui.theme.*
+
+// ==================== CARD STYLE ====================
+
+val BalanceGradient = Brush.linearGradient(
+    colors = listOf(QBXPurple, QBXBlueDark),
+    start = Offset(0f, 0f),
+    end = Offset(800f, 400f)
+)
+
+private fun Modifier.solidCard(): Modifier = this
+    .clip(RoundedCornerShape(16.dp))
+    .background(QBXSurface)
 
 // ==================== MAIN WALLET SCREEN ====================
 
@@ -39,231 +59,364 @@ import org.qbitx.wallet.ui.theme.*
 fun WalletScreen(
     state: WalletUiState,
     onCreateWallet: () -> Unit,
+    onImportWallet: (String) -> Unit,
     onNavigateToSend: () -> Unit,
     onNavigateToReceive: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Q-BitX", fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Wallet", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, "Settings")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(12.dp))
+
+        // Top bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (!state.hasWallet) {
-                // No wallet — show creation screen
-                Spacer(Modifier.height(80.dp))
-                Icon(
-                    Icons.Default.Shield,
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = QBXBlue
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    "Post-Quantum Wallet",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
+            Text("Q-BitX", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = QBXOnSurface)
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(Icons.Outlined.Settings, "Settings", tint = QBXOnSurfaceDim)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (!state.hasWallet) {
+            // ===== No wallet — creation screen =====
+            Spacer(Modifier.height(60.dp))
+
+            Icon(
+                Icons.Default.Shield,
+                null,
+                tint = QBXPurple,
+                modifier = Modifier.size(64.dp)
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                "Willkommen bei Q-BitX",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = QBXOnSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Quantencomputer-resistente\nKryptowährung der Zukunft",
+                textAlign = TextAlign.Center,
+                fontSize = 15.sp,
+                color = QBXOnSurfaceDim,
+                lineHeight = 22.sp
+            )
+
+            Spacer(Modifier.height(40.dp))
+
+            Button(
+                onClick = onCreateWallet,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !state.isLoading,
+                colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
+            ) {
+                if (state.isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = QBXOnSurface, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Wallet erstellen", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Import wallet
+            var showImport by remember { mutableStateOf(false) }
+            var importKey by remember { mutableStateOf("") }
+
+            OutlinedButton(
+                onClick = { showImport = !showImport },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = QBXOnSurface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, QBXDivider)
+            ) {
+                Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Wallet importieren", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            if (showImport) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = importKey,
+                    onValueChange = { importKey = it },
+                    placeholder = { Text("Backup-Key einfügen...", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = QBXPurple,
+                        unfocusedBorderColor = QBXDivider,
+                        focusedContainerColor = QBXSurface,
+                        unfocusedContainerColor = QBXSurface,
+                        cursorColor = QBXPurple,
+                        focusedTextColor = QBXOnSurface,
+                        unfocusedTextColor = QBXOnSurface
+                    )
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Geschützt durch Dilithium3 (ML-DSA)\nQuantencomputer-resistente Signaturen",
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Spacer(Modifier.height(32.dp))
                 Button(
-                    onClick = onCreateWallet,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    onClick = { onImportWallet(importKey) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp),
-                    enabled = !state.isLoading
+                    enabled = importKey.contains(":") && !state.isLoading,
+                    colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
                 ) {
-                    if (state.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                    } else {
-                        Icon(Icons.Default.Add, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Neues Wallet erstellen", fontSize = 16.sp)
-                    }
+                    Text("Importieren", fontWeight = FontWeight.SemiBold)
                 }
-            } else {
-                // Wallet exists — show dashboard
-                // Connection status
-                ConnectionStatusCard(state)
+            }
 
-                Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(24.dp))
 
-                // Balance card
-                BalanceCard(state, onRefresh)
-
-                Spacer(Modifier.height(16.dp))
-
-                // Address card
-                AddressCard(state.address)
-
-                Spacer(Modifier.height(24.dp))
-
-                // Action buttons
+            // Feature list
+            listOf(
+                Triple(Icons.Default.Shield, "Dilithium3 / ML-DSA-65", "Post-Quantum Signaturen"),
+                Triple(Icons.Default.Lock, "AES-256 verschlüsselt", "Schlüssel sicher gespeichert"),
+                Triple(Icons.Default.Speed, "SHA-256d Proof-of-Work", "Bewährter Konsens-Mechanismus")
+            ).forEach { (icon, title, subtitle) ->
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .solidCard()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
-                        onClick = onNavigateToSend,
-                        modifier = Modifier.weight(1f).height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        enabled = state.nodeConnected
-                    ) {
-                        Icon(Icons.Default.Send, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Senden")
+                    Icon(icon, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurface)
+                        Text(subtitle, fontSize = 12.sp, color = QBXOnSurfaceDim)
                     }
-                    OutlinedButton(
-                        onClick = onNavigateToReceive,
-                        modifier = Modifier.weight(1f).height(56.dp),
-                        shape = RoundedCornerShape(12.dp)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        } else {
+            // ===== Wallet exists — dashboard =====
+
+            // Balance card
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(BalanceGradient)
+                    .padding(24.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.QrCode, null)
+                        Text("Guthaben", fontSize = 14.sp, color = QBXOnSurface.copy(alpha = 0.7f))
+                        if (state.nodeConnected) {
+                            Text(
+                                "Block ${state.blockHeight}",
+                                fontSize = 12.sp,
+                                color = QBXOnSurface.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            "%.8f".format(state.balance),
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = QBXOnSurface
+                        )
                         Spacer(Modifier.width(8.dp))
-                        Text("Empfangen")
+                        Text(
+                            "QBX",
+                            fontSize = 16.sp,
+                            color = QBXOnSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+
+                    if (state.unconfirmedBalance != 0.0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Unbestätigt: ${"%.8f".format(state.unconfirmedBalance)} QBX",
+                            fontSize = 13.sp,
+                            color = QBXOnSurface.copy(alpha = 0.6f)
+                        )
                     }
                 }
             }
 
-            // Error display
-            state.error?.let { error ->
-                Spacer(Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = QBXRed.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp)
+            Spacer(Modifier.height(16.dp))
+
+            // Action buttons row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Send
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .solidCard()
+                        .clickable(enabled = state.nodeConnected) { onNavigateToSend() }
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Icon(Icons.Default.ArrowUpward, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Senden", fontSize = 13.sp, color = QBXOnSurface)
+                }
+
+                // Receive
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .solidCard()
+                        .clickable { onNavigateToReceive() }
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.ArrowDownward, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Empfangen", fontSize = 13.sp, color = QBXOnSurface)
+                }
+
+                // Refresh
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .solidCard()
+                        .clickable { onRefresh() }
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.Refresh, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Refresh", fontSize = 13.sp, color = QBXOnSurface)
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Address card
+            AddressCard(state.address)
+
+            Spacer(Modifier.height(16.dp))
+
+            // Connection status
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .solidCard()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (state.nodeConnected) QBXGreen else QBXRed)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        error,
-                        modifier = Modifier.padding(12.dp),
-                        color = QBXRed,
-                        fontSize = 13.sp
+                        if (state.nodeConnected) "Verbunden" else "Nicht verbunden",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = QBXOnSurface
                     )
+                    if (state.nodeConnected) {
+                        Text("${state.chain} · Dilithium3", fontSize = 12.sp, color = QBXOnSurfaceDim)
+                    }
                 }
+                Icon(Icons.Default.Shield, null, tint = QBXGreen.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
             }
         }
+
+        // Error display
+        state.error?.let { error ->
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(QBXRed.copy(alpha = 0.1f))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(Icons.Default.ErrorOutline, null, tint = QBXRed, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(error, color = QBXRed.copy(alpha = 0.9f), fontSize = 13.sp, modifier = Modifier.weight(1f))
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
     }
 }
 
-@Composable
-fun ConnectionStatusCard(state: WalletUiState) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (state.nodeConnected) QBXGreen.copy(alpha = 0.1f) else QBXRed.copy(alpha = 0.1f)
-        )
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                if (state.nodeConnected) Icons.Default.CheckCircle else Icons.Default.Warning,
-                null,
-                tint = if (state.nodeConnected) QBXGreen else QBXRed,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            if (state.nodeConnected) {
-                Text("Verbunden · ${state.chain} · Block ${state.blockHeight}", fontSize = 13.sp)
-            } else {
-                Text("Nicht verbunden — Einstellungen prüfen", fontSize = 13.sp)
-            }
-        }
-    }
-}
-
-@Composable
-fun BalanceCard(state: WalletUiState, onRefresh: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = QBXSurfaceLight)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("Guthaben", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    "%.8f".format(state.balance),
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("QBX", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = QBXGold)
-            }
-            if (state.unconfirmedBalance != 0.0) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Unbestätigt: ${"%.8f".format(state.unconfirmedBalance)} QBX",
-                    fontSize = 12.sp,
-                    color = QBXGold
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Aktualisieren", fontSize = 12.sp)
-            }
-        }
-    }
-}
+// ==================== ADDRESS CARD ====================
 
 @Composable
 fun AddressCard(address: String) {
     val clipboardManager = LocalClipboardManager.current
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.clickable {
-            clipboardManager.setText(AnnotatedString(address))
-        }
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Deine PQ-Adresse", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+    var copied by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .solidCard()
+            .clickable {
+                clipboardManager.setText(AnnotatedString(address))
+                copied = true
             }
-            Spacer(Modifier.height(8.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.QrCode2, null, tint = QBXPurple, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("PQ-Adresse", fontSize = 11.sp, color = QBXOnSurfaceDim)
+            Spacer(Modifier.height(2.dp))
             Text(
                 address,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
-                maxLines = 2,
+                color = QBXOnSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
+        Spacer(Modifier.width(8.dp))
+        Icon(
+            if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+            null,
+            tint = if (copied) QBXGreen else QBXOnSurfaceDim,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
@@ -281,138 +434,260 @@ fun SendScreen(
     var feePolicy by remember { mutableStateOf("normal") }
     var showConfirm by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("QBX senden") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Zurück")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { toAddress = it }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Top bar
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // To address
-            OutlinedTextField(
-                value = toAddress,
-                onValueChange = { toAddress = it },
-                label = { Text("Empfängeradresse") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Person, null) }
-            )
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "Zurück", tint = QBXOnSurface)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("QBX Senden", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+        }
 
-            Spacer(Modifier.height(16.dp))
-
-            // Amount
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { amount = it },
-                label = { Text("Betrag (QBX)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                leadingIcon = { Icon(Icons.Default.Payments, null) }
-            )
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Verfügbar: ${"%.8f".format(state.balance)} QBX",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // Fee policy
-            Text("Gebühren", fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("low" to "Niedrig\n1 sat/vB", "normal" to "Normal\n5 sat/vB", "high" to "Hoch\n15 sat/vB").forEach { (key, label) ->
-                    FilterChip(
-                        selected = feePolicy == key,
-                        onClick = { feePolicy = key },
-                        label = { Text(label, fontSize = 11.sp, textAlign = TextAlign.Center) },
-                        modifier = Modifier.weight(1f)
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            // Amount display
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .solidCard()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            if (amount.isNotEmpty()) amount else "0",
+                            fontSize = 36.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = QBXOnSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("QBX", fontSize = 16.sp, color = QBXOnSurfaceDim,
+                            modifier = Modifier.padding(bottom = 6.dp))
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Verfügbar: ${"%.8f".format(state.balance)} QBX",
+                        fontSize = 12.sp,
+                        color = QBXOnSurfaceDim
                     )
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(20.dp))
+
+            // To Address input
+            Text("Empfänger", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = toAddress,
+                onValueChange = { toAddress = it },
+                placeholder = { Text("M... Adresse eingeben", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = QBXPurple,
+                    unfocusedBorderColor = QBXDivider,
+                    focusedContainerColor = QBXSurface,
+                    unfocusedContainerColor = QBXSurface,
+                    cursorColor = QBXPurple,
+                    focusedTextColor = QBXOnSurface,
+                    unfocusedTextColor = QBXOnSurface
+                ),
+                leadingIcon = { Icon(Icons.Default.Person, null, tint = QBXOnSurfaceDim) },
+                trailingIcon = {
+                    IconButton(onClick = {
+                        val options = ScanOptions().apply {
+                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            setPrompt("QR-Code scannen")
+                            setBeepEnabled(false)
+                            setOrientationLocked(true)
+                        }
+                        scanLauncher.launch(options)
+                    }) {
+                        Icon(Icons.Default.QrCodeScanner, "QR scannen", tint = QBXPurple)
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            // Amount input
+            Text("Betrag", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = amount,
+                onValueChange = { amount = it },
+                placeholder = { Text("0.00000000", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = QBXPurple,
+                    unfocusedBorderColor = QBXDivider,
+                    focusedContainerColor = QBXSurface,
+                    unfocusedContainerColor = QBXSurface,
+                    cursorColor = QBXPurple,
+                    focusedTextColor = QBXOnSurface,
+                    unfocusedTextColor = QBXOnSurface
+                ),
+                leadingIcon = { Icon(Icons.Default.Payments, null, tint = QBXOnSurfaceDim) }
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            // Fee policy
+            Text("Gebühren", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf(
+                    Triple("low", "Niedrig", "1 sat/vB"),
+                    Triple("normal", "Normal", "5 sat/vB"),
+                    Triple("high", "Hoch", "15 sat/vB")
+                ).forEach { (key, label, sub) ->
+                    val selected = feePolicy == key
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (selected) QBXPurple.copy(alpha = 0.15f) else QBXSurface)
+                            .border(
+                                1.dp,
+                                if (selected) QBXPurple else QBXDivider,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable { feePolicy = key }
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) QBXPurple else QBXOnSurfaceDim
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(sub, fontSize = 11.sp, color = QBXOnSurfaceDim.copy(alpha = 0.6f))
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
 
             // Send button
             Button(
                 onClick = { showConfirm = true },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
                 shape = RoundedCornerShape(12.dp),
-                enabled = toAddress.isNotBlank() && amount.toDoubleOrNull() != null && amount.toDouble() > 0 && !state.isLoading
+                enabled = toAddress.isNotBlank() && amount.toDoubleOrNull() != null && amount.toDouble() > 0 && !state.isLoading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = QBXPurple,
+                    disabledContainerColor = QBXPurple.copy(alpha = 0.3f)
+                )
             ) {
                 if (state.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = QBXOnSurface, strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Default.Send, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Senden", fontSize = 16.sp)
+                    Icon(Icons.Default.ArrowUpward, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Senden", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            // Success display
+            // Success
             state.lastTxId?.let { txid ->
                 Spacer(Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = QBXGreen.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(QBXGreen.copy(alpha = 0.1f))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                        Text("Transaktion gesendet!", color = QBXGreen, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.CheckCircle, null, tint = QBXGreen, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text("Transaktion gesendet!", color = QBXGreen, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Spacer(Modifier.height(4.dp))
-                        Text("TXID: $txid", fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2)
+                        Text("TXID: $txid", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = QBXGreen.copy(alpha = 0.8f), maxLines = 2)
                     }
                 }
             }
 
-            // Error display
+            // Error
             state.error?.let { error ->
                 Spacer(Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = QBXRed.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(QBXRed.copy(alpha = 0.1f))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(error, modifier = Modifier.padding(12.dp), color = QBXRed, fontSize = 13.sp)
+                    Icon(Icons.Default.ErrorOutline, null, tint = QBXRed, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(error, color = QBXRed.copy(alpha = 0.9f), fontSize = 13.sp, modifier = Modifier.weight(1f))
                 }
             }
+
+            Spacer(Modifier.height(32.dp))
         }
 
-        // Confirmation dialog
+        // Confirm dialog
         if (showConfirm) {
             AlertDialog(
                 onDismissRequest = { showConfirm = false },
-                title = { Text("Transaktion bestätigen") },
+                containerColor = QBXSurface,
+                titleContentColor = QBXOnSurface,
+                textContentColor = QBXOnSurface,
+                shape = RoundedCornerShape(16.dp),
+                title = { Text("Transaktion bestätigen", fontWeight = FontWeight.SemiBold) },
                 text = {
                     Column {
-                        Text("An: ${toAddress.take(20)}...", fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                        Text("Betrag: $amount QBX", fontWeight = FontWeight.Bold)
-                        Text("Gebühr: $feePolicy", fontSize = 13.sp)
+                        Text("An:", fontSize = 12.sp, color = QBXOnSurfaceDim)
+                        Text(toAddress.take(24) + "...", fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurface)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Betrag:", fontSize = 12.sp, color = QBXOnSurfaceDim)
+                        Text("$amount QBX", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = QBXPurple)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Gebühren: $feePolicy", fontSize = 12.sp, color = QBXOnSurfaceDim)
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        showConfirm = false
-                        amount.toDoubleOrNull()?.let { amt ->
-                            onSend(toAddress, amt, feePolicy)
-                        }
-                    }) { Text("Bestätigen") }
+                    Button(
+                        onClick = {
+                            showConfirm = false
+                            amount.toDoubleOrNull()?.let { amt -> onSend(toAddress, amt, feePolicy) }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = QBXPurple),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Bestätigen") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showConfirm = false }) { Text("Abbrechen") }
+                    TextButton(onClick = { showConfirm = false }) {
+                        Text("Abbrechen", color = QBXOnSurfaceDim)
+                    }
                 }
             )
         }
@@ -428,89 +703,116 @@ fun ReceiveScreen(
     onBack: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("QBX empfangen") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Zurück")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+            .statusBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Top bar
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Spacer(Modifier.height(24.dp))
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "Zurück", tint = QBXOnSurface)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("QBX Empfangen", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+        }
 
-            // QR Code
+        Spacer(Modifier.height(24.dp))
+
+        // QR code area
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 40.dp)
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(QBXSurface),
+            contentAlignment = Alignment.Center
+        ) {
             val qrBitmap = remember(address) { generateQrCode(address) }
             qrBitmap?.let {
                 Image(
                     bitmap = it.asImageBitmap(),
                     contentDescription = "QR Code",
                     modifier = Modifier
-                        .size(250.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(200.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(androidx.compose.ui.graphics.Color.White)
-                        .padding(16.dp)
+                        .padding(12.dp)
                 )
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            Text(
-                "Deine PQ-Adresse",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-            Spacer(Modifier.height(8.dp))
-
-            Card(shape = RoundedCornerShape(8.dp)) {
-                Text(
-                    address,
-                    modifier = Modifier.padding(16.dp),
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            Button(
-                onClick = { clipboardManager.setText(AnnotatedString(address)) },
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.ContentCopy, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Adresse kopieren")
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = QBXBlue.copy(alpha = 0.1f)),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Row(modifier = Modifier.padding(12.dp)) {
-                    Icon(Icons.Default.Shield, null, tint = QBXBlue, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Post-Quantum-gesichert mit Dilithium3 (ML-DSA-65)",
-                        fontSize = 12.sp,
-                        color = QBXBlue
-                    )
-                }
             }
         }
+
+        Spacer(Modifier.height(24.dp))
+
+        // Address display
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .solidCard()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Deine PQ-Adresse", fontSize = 12.sp, color = QBXOnSurfaceDim)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                address,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = QBXOnSurface,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // Copy button
+        Button(
+            onClick = {
+                clipboardManager.setText(AnnotatedString(address))
+                copied = true
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .height(54.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (copied) QBXGreen else QBXPurple
+            )
+        ) {
+            Icon(
+                if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (copied) "Kopiert!" else "Adresse kopieren",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Security note
+        Text(
+            "Dilithium3 / ML-DSA-65 gesichert",
+            fontSize = 12.sp,
+            color = QBXOnSurfaceDim
+        )
     }
 }
 
@@ -538,139 +840,281 @@ fun generateQrCode(text: String): Bitmap? {
 @Composable
 fun SettingsScreen(
     state: WalletUiState,
-    onConnect: (String, Int, String, String, String) -> Unit,
+    onConnect: (String) -> Unit,
+    onExportBackup: () -> String,
+    onDeleteWallet: () -> Unit,
     onBack: () -> Unit
 ) {
-    var host by remember { mutableStateOf(state.nodeHost) }
-    var port by remember { mutableStateOf(state.nodePort.toString()) }
-    var user by remember { mutableStateOf(state.nodeUser) }
-    var password by remember { mutableStateOf(state.nodePassword) }
-    var wallet by remember { mutableStateOf(state.walletName) }
+    var rpcUrl by remember { mutableStateOf(state.rpcUrl) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Einstellungen") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Zurück")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = QBXPurple,
+        unfocusedBorderColor = QBXDivider,
+        focusedContainerColor = QBXSurface,
+        unfocusedContainerColor = QBXSurface,
+        cursorColor = QBXPurple,
+        focusedTextColor = QBXOnSurface,
+        unfocusedTextColor = QBXOnSurface,
+        focusedLabelColor = QBXPurple,
+        unfocusedLabelColor = QBXOnSurfaceDim
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(QBXBackground)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
-            Text("Node-Verbindung", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = host,
-                onValueChange = { host = it },
-                label = { Text("Host / IP-Adresse") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Computer, null) }
-            )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = port,
-                onValueChange = { port = it },
-                label = { Text("Port") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                leadingIcon = { Icon(Icons.Default.Cable, null) }
-            )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = user,
-                onValueChange = { user = it },
-                label = { Text("RPC Benutzername") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Person, null) }
-            )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("RPC Passwort") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                leadingIcon = { Icon(Icons.Default.Lock, null) }
-            )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = wallet,
-                onValueChange = { wallet = it },
-                label = { Text("Wallet-Name (optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.AccountBalanceWallet, null) }
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            Button(
-                onClick = { onConnect(host, port.toIntOrNull() ?: 8332, user, password, wallet) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(12.dp),
-                enabled = !state.isLoading && host.isNotBlank()
+            // Top bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (state.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                } else {
-                    Icon(Icons.Default.Link, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Verbinden")
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, "Zurück", tint = QBXOnSurface)
                 }
+                Spacer(Modifier.width(4.dp))
+                Text("Einstellungen", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
             }
 
-            if (state.nodeConnected) {
-                Spacer(Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = QBXGreen.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp)
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Spacer(Modifier.height(8.dp))
+
+                // Node connection section
+                Text("RPC Verbindung", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                Spacer(Modifier.height(4.dp))
+                Text("Stateless RPC — keine Wallet-Daten auf dem Server", fontSize = 13.sp, color = QBXOnSurfaceDim)
+
+                Spacer(Modifier.height(20.dp))
+
+                OutlinedTextField(
+                    value = rpcUrl,
+                    onValueChange = { rpcUrl = it },
+                    label = { Text("RPC URL") },
+                    placeholder = { Text("https://qbitx.solopool.site/", color = QBXOnSurfaceDim.copy(alpha = 0.5f)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = fieldColors,
+                    leadingIcon = { Icon(Icons.Default.Link, null, tint = QBXOnSurfaceDim) }
+                )
+
+                Spacer(Modifier.height(24.dp))
+
+                Button(
+                    onClick = { onConnect(rpcUrl) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = !state.isLoading && rpcUrl.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = QBXPurple,
+                        disabledContainerColor = QBXPurple.copy(alpha = 0.3f)
+                    )
                 ) {
-                    Row(modifier = Modifier.padding(12.dp)) {
-                        Icon(Icons.Default.CheckCircle, null, tint = QBXGreen, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Verbunden: ${state.chain} · Block #${state.blockHeight}", color = QBXGreen)
+                    if (state.isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = QBXOnSurface, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Link, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Verbinden", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
-            }
 
-            state.error?.let { error ->
-                Spacer(Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = QBXRed.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(error, modifier = Modifier.padding(12.dp), color = QBXRed, fontSize = 13.sp)
+                // Connection status
+                if (state.nodeConnected) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(QBXGreen.copy(alpha = 0.1f))
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = QBXGreen, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Verbunden: ${state.chain} · Block #${state.blockHeight}", color = QBXGreen, fontSize = 14.sp)
+                    }
                 }
+
+                state.error?.let { error ->
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(QBXRed.copy(alpha = 0.12f))
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(Icons.Default.ErrorOutline, null, tint = QBXRed, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(error, color = QBXRed.copy(alpha = 0.9f), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
+                HorizontalDivider(color = QBXDivider)
+                Spacer(Modifier.height(20.dp))
+
+                // Backup / Export section
+                if (state.hasWallet) {
+                    Text("Wallet-Backup", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = QBXOnSurface)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Speichere deinen Backup-Key um das Wallet wiederherstellen zu können", fontSize = 13.sp, color = QBXOnSurfaceDim)
+
+                    Spacer(Modifier.height(16.dp))
+
+                    val clipboardManager = LocalClipboardManager.current
+                    var backupKey by remember { mutableStateOf<String?>(null) }
+                    var copied by remember { mutableStateOf(false) }
+                    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+                    Button(
+                        onClick = { backupKey = onExportBackup() },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
+                    ) {
+                        Icon(Icons.Default.Key, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Backup-Key anzeigen", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    backupKey?.let { key ->
+                        Spacer(Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(QBXRed.copy(alpha = 0.1f))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, null, tint = QBXRed, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Niemals teilen! Wer diesen Key hat, kontrolliert dein Wallet.", fontSize = 12.sp, color = QBXRed)
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .solidCard()
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                key,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = QBXOnSurface,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(key))
+                                copied = true
+                            },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                null,
+                                tint = if (copied) QBXGreen else QBXOnSurface,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (copied) "Kopiert!" else "Backup-Key kopieren",
+                                color = if (copied) QBXGreen else QBXOnSurface
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = QBXDivider)
+                    Spacer(Modifier.height(20.dp))
+
+                    // Delete wallet
+                    Text("Gefahrenzone", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = QBXRed)
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = QBXRed),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, QBXRed.copy(alpha = 0.5f))
+                    ) {
+                        Icon(Icons.Default.DeleteForever, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Wallet löschen", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    if (showDeleteConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            containerColor = QBXSurface,
+                            titleContentColor = QBXOnSurface,
+                            textContentColor = QBXOnSurface,
+                            shape = RoundedCornerShape(16.dp),
+                            title = { Text("Wallet wirklich löschen?", fontWeight = FontWeight.SemiBold) },
+                            text = {
+                                Text(
+                                    "Dein Wallet wird unwiderruflich gelöscht. Stelle sicher, dass du deinen Backup-Key gespeichert hast!",
+                                    fontSize = 14.sp
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showDeleteConfirm = false
+                                        onDeleteWallet()
+                                        onBack()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = QBXRed),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Ja, löschen") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) {
+                                    Text("Abbrechen", color = QBXOnSurfaceDim)
+                                }
+                            }
+                        )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = QBXDivider)
+                    Spacer(Modifier.height(20.dp))
+                }
+
+                // About section
+                Text("Über", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
+                Spacer(Modifier.height(10.dp))
+                Text("Q-BitX Wallet v0.2.0", fontSize = 15.sp, color = QBXOnSurface)
+                Spacer(Modifier.height(4.dp))
+                Text("Post-Quantum Light Wallet · Dilithium3 / ML-DSA-65", fontSize = 13.sp, color = QBXOnSurfaceDim)
+
+                Spacer(Modifier.height(32.dp))
             }
-
-            Spacer(Modifier.height(32.dp))
-            Divider()
-            Spacer(Modifier.height(16.dp))
-
-            // About section
-            Text("Über", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(Modifier.height(8.dp))
-            Text("Q-BitX Wallet v0.2.0", fontSize = 14.sp)
-            Text("Post-Quantum Light Wallet", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-            Text("Dilithium3 / ML-DSA-65 Signaturen", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
         }
     }
 }

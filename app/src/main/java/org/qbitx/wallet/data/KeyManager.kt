@@ -81,6 +81,61 @@ class KeyManager(context: Context) {
         return AddressUtils.toHex(pubkey)
     }
 
+    /** Export private key as hex string (for node import). */
+    fun exportPrivateKeyHex(): String? {
+        val privkeyB64 = prefs.getString("privkey", null) ?: return null
+        val privkey = Base64.decode(privkeyB64, Base64.NO_WRAP)
+        val hex = AddressUtils.toHex(privkey)
+        privkey.fill(0)
+        return hex
+    }
+
+    /**
+     * Export a full backup string: Base64(privkey) + ":" + Base64(pubkey).
+     * This can be used to restore the wallet on another device.
+     */
+    fun exportBackup(): String? {
+        val privB64 = prefs.getString("privkey", null) ?: return null
+        val pubB64 = prefs.getString("pubkey", null) ?: return null
+        return "$privB64:$pubB64"
+    }
+
+    /**
+     * Import a wallet from a backup string (privB64:pubB64).
+     * Validates key sizes and that signing/verification works.
+     */
+    fun importWallet(backup: String): String {
+        val parts = backup.trim().split(":")
+        require(parts.size == 2) { "Ungültiges Backup-Format" }
+
+        val privkey = Base64.decode(parts[0], Base64.NO_WRAP)
+        val pubkey = Base64.decode(parts[1], Base64.NO_WRAP)
+
+        val expectedSk = dilithium.getSecretKeyBytes()
+        val expectedPk = dilithium.getPublicKeyBytes()
+        require(privkey.size == expectedSk) {
+            "Ungültige Private-Key-Länge: ${privkey.size} (erwartet $expectedSk)"
+        }
+        require(pubkey.size == expectedPk) {
+            "Ungültige Public-Key-Länge: ${pubkey.size} (erwartet $expectedPk)"
+        }
+
+        // Verify the keypair works: sign a test message and verify
+        val testMsg = "qbitx-import-test".toByteArray()
+        val sig = dilithium.sign(testMsg, privkey)
+            ?: throw RuntimeException("Schlüssel ungültig: Signatur fehlgeschlagen")
+        val valid = dilithium.verify(sig, testMsg, pubkey)
+        require(valid) { "Schlüssel ungültig: Verifizierung fehlgeschlagen" }
+
+        prefs.edit()
+            .putString("pubkey", parts[1])
+            .putString("privkey", parts[0])
+            .apply()
+
+        privkey.fill(0)
+        return AddressUtils.pubkeyToAddress(pubkey)
+    }
+
     /** Delete the wallet (irreversible!). */
     fun deleteWallet() {
         prefs.edit().clear().apply()

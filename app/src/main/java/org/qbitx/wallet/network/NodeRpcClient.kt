@@ -1,11 +1,11 @@
 package org.qbitx.wallet.network
 
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,38 +13,28 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * JSON-RPC client for communicating with a Q-BitX Core node.
- * Handles balance queries, transaction broadcasting, and UTXO listing.
+ * Stateless JSON-RPC client for the Q-BitX public proxy.
+ * Only uses blockchain queries + tx building + broadcasting.
+ * No wallet operations — keys never leave the device.
  */
 class NodeRpcClient(
-    private var host: String = "127.0.0.1",
-    private var port: Int = 8332,
-    private var user: String = "qbitx",
-    private var password: String = "qbitx",
-    private var wallet: String = ""
+    private var rpcUrl: String = "https://qbitx.solopool.site/"
 ) {
     private val gson = Gson()
     private val JSON = "application/json".toMediaType()
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private var requestId = 0
 
-    fun configure(host: String, port: Int, user: String, password: String, wallet: String = "") {
-        this.host = host
-        this.port = port
-        this.user = user
-        this.password = password
-        this.wallet = wallet
+    fun configure(rpcUrl: String) {
+        this.rpcUrl = rpcUrl.trimEnd('/')
     }
 
-    private fun buildUrl(): String {
-        val base = "http://$host:$port"
-        return if (wallet.isNotEmpty()) "$base/wallet/$wallet" else base
-    }
+    private fun buildUrl(): String = rpcUrl
 
     /** Execute a JSON-RPC call and return the result as JsonObject. */
     suspend fun call(method: String, vararg params: Any?): JsonObject = withContext(Dispatchers.IO) {
@@ -56,12 +46,11 @@ class NodeRpcClient(
             "params" to params.toList()
         ))
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(buildUrl())
             .post(body.toRequestBody(JSON))
-            .header("Authorization", Credentials.basic(user, password))
-            .build()
 
+        val request = requestBuilder.build()
         val response = client.newCall(request).execute()
         val responseBody = response.body?.string()
             ?: throw RpcException("Empty response from node")
@@ -78,37 +67,106 @@ class NodeRpcClient(
         json
     }
 
-    /** Get wallet balance. Returns balance in QBX as a Double. */
-    suspend fun getBalance(): Double {
-        val result = call("getbalance")
-        return result.get("result")?.asDouble ?: 0.0
-    }
-
-    /** Get a new PQ address from the node wallet. */
-    suspend fun getNewAddress(label: String = "", addressType: String = "pq"): String {
-        val result = call("getnewaddress", label, addressType)
-        return result.get("result")?.asString ?: throw RpcException("Failed to get new address")
-    }
-
-    /** Send QBX using pqsendtoaddress. */
-    suspend fun pqSendToAddress(toAddress: String, amount: Double, feePolicy: String = "normal"): SendResult {
-        val result = call("pqsendtoaddress", toAddress, amount, feePolicy)
+    /**
+     * Scan the UTXO set for a specific address.
+     * Stateless — works for ANY address without a wallet.
+     */
+    suspend fun scanTxOutSet(address: String): ScanResult {
+        val scanObjects = com.google.gson.JsonArray().apply {
+            add("addr($address)")
+        }
+        val result = call("scantxoutset", "start", scanObjects)
         val obj = result.getAsJsonObject("result")
-        return SendResult(
-            txid = obj.get("txid")?.asString ?: "",
-            amount = obj.get("amount")?.asDouble ?: 0.0,
-            fee = obj.get("fee")?.asDouble ?: 0.0,
-            change = obj.get("change")?.asDouble ?: 0.0
+            ?: return ScanResult(totalAmount = 0.0, unspents = emptyList())
+        val unspents = obj.getAsJsonArray("unspents")?.map { elem ->
+            val u = elem.asJsonObject
+            Utxo(
+                txid = u.get("txid").asString,
+                vout = u.get("vout").asInt,
+                address = address,
+                amount = u.get("amount").asDouble,
+                confirmations = u.get("height")?.asInt?.let { obj.get("height")?.asInt?.minus(it)?.plus(1) } ?: 0,
+                scriptPubKey = u.get("scriptPubKey")?.asString ?: ""
+            )
+        } ?: emptyList()
+        return ScanResult(
+            totalAmount = obj.get("total_amount")?.asDouble ?: 0.0,
+            unspents = unspents
         )
     }
 
-    /** Send raw transaction (for local signing). */
+    /**
+     * Create an unsigned raw transaction (stateless).
+     * Uses the node to correctly encode addresses → scriptPubKeys.
+     */
+    suspend fun createRawTransaction(
+        inputs: List<Utxo>,
+        recipientAddress: String,
+        recipientAmount: Double,
+        changeAddress: String?,
+        changeAmount: Double?
+    ): String = withContext(Dispatchers.IO) {
+        val id = ++requestId
+
+        val inputsArr = JsonArray()
+        for (utxo in inputs) {
+            inputsArr.add(JsonObject().apply {
+                addProperty("txid", utxo.txid)
+                addProperty("vout", utxo.vout)
+            })
+        }
+
+        val outputsArr = JsonArray()
+        outputsArr.add(JsonObject().apply {
+            addProperty(recipientAddress, recipientAmount)
+        })
+        if (changeAddress != null && changeAmount != null && changeAmount > 0.0) {
+            outputsArr.add(JsonObject().apply {
+                addProperty(changeAddress, changeAmount)
+            })
+        }
+
+        val paramsArr = JsonArray().apply {
+            add(inputsArr)
+            add(outputsArr)
+        }
+
+        val requestBody = JsonObject().apply {
+            addProperty("jsonrpc", "2.0")
+            addProperty("id", id)
+            addProperty("method", "createrawtransaction")
+            add("params", paramsArr)
+        }
+
+        val body = requestBody.toString()
+
+        val requestBuilder = Request.Builder()
+            .url(buildUrl())
+            .post(body.toRequestBody(JSON))
+
+        val req = requestBuilder.build()
+        val response = client.newCall(req).execute()
+        val responseBody = response.body?.string()
+            ?: throw RpcException("Empty response from node")
+
+        val json = JsonParser.parseString(responseBody).asJsonObject
+        if (json.has("error") && !json.get("error").isJsonNull) {
+            val error = json.getAsJsonObject("error")
+            val code = error.get("code")?.asInt ?: -1
+            val message = error.get("message")?.asString ?: "Unknown RPC error"
+            throw RpcException("RPC error $code: $message")
+        }
+
+        json.get("result")?.asString ?: throw RpcException("Failed to create raw transaction")
+    }
+
+    /** Broadcast a signed raw transaction. Returns the txid. */
     suspend fun sendRawTransaction(hexTx: String): String {
         val result = call("sendrawtransaction", hexTx)
         return result.get("result")?.asString ?: throw RpcException("Failed to broadcast tx")
     }
 
-    /** Get blockchain info. */
+    /** Get blockchain info (stateless). */
     suspend fun getBlockchainInfo(): BlockchainInfo {
         val result = call("getblockchaininfo")
         val obj = result.getAsJsonObject("result")
@@ -120,37 +178,7 @@ class NodeRpcClient(
         )
     }
 
-    /** List unspent UTXOs. */
-    suspend fun listUnspent(minConf: Int = 1, maxConf: Int = 9999999): List<Utxo> {
-        val result = call("listunspent", minConf, maxConf)
-        val arr = result.getAsJsonArray("result")
-        return arr.map { elem ->
-            val obj = elem.asJsonObject
-            Utxo(
-                txid = obj.get("txid").asString,
-                vout = obj.get("vout").asInt,
-                address = obj.get("address")?.asString ?: "",
-                amount = obj.get("amount").asDouble,
-                confirmations = obj.get("confirmations").asInt,
-                scriptPubKey = obj.get("scriptPubKey")?.asString ?: ""
-            )
-        }
-    }
-
-    /** Get wallet info. */
-    suspend fun getWalletInfo(): WalletInfo {
-        val result = call("getwalletinfo")
-        val obj = result.getAsJsonObject("result")
-        return WalletInfo(
-            walletName = obj.get("walletname")?.asString ?: "",
-            balance = obj.get("balance")?.asDouble ?: 0.0,
-            unconfirmedBalance = obj.get("unconfirmed_balance")?.asDouble ?: 0.0,
-            immatureBalance = obj.get("immature_balance")?.asDouble ?: 0.0,
-            txCount = obj.get("txcount")?.asInt ?: 0
-        )
-    }
-
-    /** Test connection to the node. */
+    /** Test connection to the proxy/node. */
     suspend fun testConnection(): Boolean {
         return try {
             getBlockchainInfo()
@@ -161,9 +189,9 @@ class NodeRpcClient(
     }
 }
 
-data class SendResult(val txid: String, val amount: Double, val fee: Double, val change: Double)
+data class SendResult(val txid: String, val fee: Long)
 data class BlockchainInfo(val chain: String, val blocks: Int, val headers: Int, val bestBlockHash: String)
 data class Utxo(val txid: String, val vout: Int, val address: String, val amount: Double, val confirmations: Int, val scriptPubKey: String)
-data class WalletInfo(val walletName: String, val balance: Double, val unconfirmedBalance: Double, val immatureBalance: Double, val txCount: Int)
+data class ScanResult(val totalAmount: Double, val unspents: List<Utxo>)
 
 class RpcException(message: String) : Exception(message)

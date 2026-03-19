@@ -8,7 +8,7 @@ import java.security.MessageDigest
  */
 object AddressUtils {
 
-    private const val DILITHIUM_PKHASH_VERSION = 0x3A.toByte() // 'Q' prefix for mainnet
+    private const val DILITHIUM_PKHASH_VERSION = 0x32.toByte() // 'M' prefix for mainnet (version byte 50)
 
     /** Derive the 20-byte hash160 from a Dilithium public key. */
     fun hash160(pubkey: ByteArray): ByteArray {
