@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Q-BitX 钱包</string>
+
+    <!-- Lock Screen -->
+    <string name="lock_title">Q-BitX 钱包</string>
+    <string name="lock_enter_pin">输入 PIN</string>
+    <string name="lock_wrong_pin">PIN 错误</string>
+    <string name="lock_biometric_title">Q-BitX 钱包</string>
+    <string name="lock_biometric_subtitle">解锁您的钱包</string>
+    <string name="lock_biometric_negative">输入 PIN</string>
+
+    <!-- Wallet Screen - No wallet -->
+    <string name="welcome_title">欢迎使用 Q-BitX</string>
+    <string name="welcome_subtitle">抗量子计算\n未来的加密货币</string>
+    <string name="btn_create_wallet">创建钱包</string>
+    <string name="btn_import_wallet">导入钱包</string>
+    <string name="import_placeholder">粘贴备份密钥…</string>
+    <string name="btn_import">导入</string>
+    <string name="feature_dilithium">Dilithium3 / ML-DSA-65</string>
+    <string name="feature_dilithium_sub">后量子签名</string>
+    <string name="feature_encrypted">AES-256 加密</string>
+    <string name="feature_encrypted_sub">密钥安全存储</string>
+    <string name="feature_pow">SHA-256d 工作量证明</string>
+    <string name="feature_pow_sub">经过验证的共识机制</string>
+
+    <!-- Wallet Screen - Dashboard -->
+    <string name="wallet_count">%d 个钱包</string>
+    <string name="wallet_count_plural">%d 个钱包</string>
+    <string name="new_wallet_title">新钱包</string>
+    <string name="new_wallet_name_hint">名称（可选）</string>
+    <string name="btn_create">创建</string>
+    <string name="btn_cancel">取消</string>
+    <string name="balance_label">余额</string>
+    <string name="block_label">区块 %d</string>
+    <string name="unconfirmed_label">未确认: %s QBX</string>
+    <string name="btn_send">发送</string>
+    <string name="btn_receive">接收</string>
+    <string name="btn_refresh">刷新</string>
+    <string name="pq_address">PQ 地址</string>
+    <string name="connected">已连接</string>
+    <string name="not_connected">未连接</string>
+    <string name="recent_tx">最近交易</string>
+    <string name="tx_to">收款方: %s</string>
+    <string name="copied">已复制！</string>
+
+    <!-- Send Screen -->
+    <string name="send_title">发送 QBX</string>
+    <string name="send_back">返回</string>
+    <string name="send_available">可用: %s QBX</string>
+    <string name="send_recipient">收款方</string>
+    <string name="send_address_hint">输入 M… 地址</string>
+    <string name="send_scan_qr">扫描二维码</string>
+    <string name="send_qr_prompt">扫描二维码</string>
+    <string name="send_amount">金额</string>
+    <string name="send_fees">手续费</string>
+    <string name="fee_low">低</string>
+    <string name="fee_normal">标准</string>
+    <string name="fee_high">高</string>
+    <string name="confirm_title">确认交易</string>
+    <string name="confirm_to">收款方:</string>
+    <string name="confirm_amount">金额:</string>
+    <string name="confirm_fees">手续费: %s</string>
+    <string name="btn_confirm">确认</string>
+    <string name="tx_sent">交易已发送！</string>
+
+    <!-- Receive Screen -->
+    <string name="receive_title">接收 QBX</string>
+    <string name="receive_your_address">您的 PQ 地址</string>
+    <string name="receive_copy_address">复制地址</string>
+    <string name="receive_secured">Dilithium3 / ML-DSA-65 安全保障</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">设置</string>
+    <string name="settings_rpc_title">RPC 连接</string>
+    <string name="settings_rpc_subtitle">无状态 RPC — 服务器上无钱包数据</string>
+    <string name="settings_connect">连接</string>
+    <string name="settings_connected">已连接: %1$s · 区块 #%2$s</string>
+    <string name="settings_backup_title">钱包备份</string>
+    <string name="settings_backup_subtitle">保存备份密钥以便恢复钱包</string>
+    <string name="settings_show_backup">显示备份密钥</string>
+    <string name="settings_never_share">切勿分享！拥有此密钥者可控制您的钱包。</string>
+    <string name="settings_copy_backup">复制备份密钥</string>
+    <string name="settings_danger_zone">危险区域</string>
+    <string name="settings_delete_wallet">删除钱包</string>
+    <string name="settings_delete_confirm_title">确定删除钱包？</string>
+    <string name="settings_delete_confirm_text">您的钱包将被永久删除。请确保已保存备份密钥！</string>
+    <string name="settings_delete_yes">是的，删除</string>
+
+    <!-- Security / PIN -->
+    <string name="settings_security">安全</string>
+    <string name="settings_security_subtitle">使用 PIN 或生物识别保护应用访问</string>
+    <string name="settings_pin_active">PIN 已启用</string>
+    <string name="settings_remove_pin">移除 PIN</string>
+    <string name="settings_setup_pin">设置 PIN</string>
+    <string name="settings_setup_pin_title">设置 PIN（4 位数字）</string>
+    <string name="settings_new_pin">新 PIN</string>
+    <string name="settings_confirm_pin">确认 PIN</string>
+    <string name="settings_pin_error_length">PIN 必须为 4 位数字</string>
+    <string name="settings_pin_error_mismatch">两次 PIN 不一致</string>
+    <string name="btn_save">保存</string>
+
+    <!-- Wallet Management -->
+    <string name="settings_manage_wallets">管理钱包</string>
+    <string name="settings_wallets_count">%d 个钱包可用</string>
+    <string name="settings_rename">重命名</string>
+    <string name="settings_remove">移除</string>
+    <string name="settings_create_wallet">创建新钱包</string>
+    <string name="settings_new_wallet">新钱包</string>
+    <string name="settings_rename_wallet">重命名钱包</string>
+
+    <!-- About -->
+    <string name="settings_about">关于</string>
+    <string name="settings_version">Q-BitX 钱包 v1.2.0</string>
+    <string name="settings_subtitle">后量子轻钱包 · Dilithium3 / ML-DSA-65</string>
+</resources>
