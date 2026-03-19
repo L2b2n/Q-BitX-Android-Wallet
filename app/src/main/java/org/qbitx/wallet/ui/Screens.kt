@@ -1113,7 +1113,7 @@ fun SettingsScreen(
                 // About section
                 Text("Über", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = QBXOnSurfaceDim)
                 Spacer(Modifier.height(10.dp))
-                Text("Q-BitX Wallet v0.2.0", fontSize = 15.sp, color = QBXOnSurface)
+                Text("Q-BitX Wallet v1.0.2", fontSize = 15.sp, color = QBXOnSurface)
                 Spacer(Modifier.height(4.dp))
                 Text("Post-Quantum Light Wallet · Dilithium3 / ML-DSA-65", fontSize = 13.sp, color = QBXOnSurfaceDim)
 
