@@ -53,6 +53,10 @@
     <string name="history_fee">Комиссия</string>
     <string name="history_date">Дата</string>
     <string name="copied">Скопировано!</string>
+    <string name="import_from_file">Импорт из файла (.qbx)</string>
+    <string name="import_or_paste">— или вставьте ключ вручную —</string>
+    <string name="backup_save_file">Сохранить как файл (.qbx)</string>
+    <string name="backup_file_saved">Файл сохранён!</string>
 
     <!-- Send Screen -->
     <string name="send_title">Отправить QBX</string>

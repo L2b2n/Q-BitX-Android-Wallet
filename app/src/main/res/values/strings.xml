@@ -53,6 +53,10 @@
     <string name="history_fee">Fee</string>
     <string name="history_date">Date</string>
     <string name="copied">Copied!</string>
+    <string name="import_from_file">Import from file (.qbx)</string>
+    <string name="import_or_paste">— or paste backup key manually —</string>
+    <string name="backup_save_file">Save as file (.qbx)</string>
+    <string name="backup_file_saved">File saved!</string>
 
     <!-- Send Screen -->
     <string name="send_title">Send QBX</string>

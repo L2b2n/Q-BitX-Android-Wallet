@@ -52,6 +52,9 @@ import org.qbitx.wallet.data.WalletInfo
 import org.qbitx.wallet.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
 
 // ==================== CARD STYLE ====================
 
@@ -277,6 +280,22 @@ fun WalletScreen(
             // Import wallet
             var showImport by remember { mutableStateOf(false) }
             var importKey by remember { mutableStateOf("") }
+            val context = LocalContext.current
+
+            val filePickerLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri: Uri? ->
+                uri?.let {
+                    try {
+                        val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.readText() ?: ""
+                        if (text.contains(":")) {
+                            onImportWallet(text)
+                        } else {
+                            importKey = text
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
 
             OutlinedButton(
                 onClick = { showImport = !showImport },
@@ -294,6 +313,23 @@ fun WalletScreen(
 
             if (showImport) {
                 Spacer(Modifier.height(12.dp))
+
+                // File import button
+                Button(
+                    onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = QBXPurple)
+                ) {
+                    Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.import_from_file), fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text(stringResource(R.string.import_or_paste), fontSize = 13.sp, color = QBXOnSurfaceDim, modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(12.dp))
+
                 OutlinedTextField(
                     value = importKey,
                     onValueChange = { importKey = it },
@@ -1404,7 +1440,23 @@ fun SettingsScreen(
                     val clipboardManager = LocalClipboardManager.current
                     var backupKey by remember { mutableStateOf<String?>(null) }
                     var copied by remember { mutableStateOf(false) }
+                    var fileSaved by remember { mutableStateOf(false) }
                     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+                    val saveFileLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.CreateDocument("application/octet-stream")
+                    ) { uri: Uri? ->
+                        uri?.let {
+                            backupKey?.let { key ->
+                                try {
+                                    context.contentResolver.openOutputStream(it)?.use { out ->
+                                        out.write(key.toByteArray())
+                                    }
+                                    fileSaved = true
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
 
                     Button(
                         onClick = { backupKey = onExportBackup() },
@@ -1431,6 +1483,27 @@ fun SettingsScreen(
                             Icon(Icons.Default.Warning, null, tint = QBXRed, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.settings_never_share), fontSize = 12.sp, color = QBXRed)
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // Save as file button
+                        Button(
+                            onClick = { saveFileLauncher.launch("qbitx-backup.qbx") },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = QBXGreen)
+                        ) {
+                            Icon(
+                                if (fileSaved) Icons.Default.Check else Icons.Default.SaveAlt,
+                                null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                if (fileSaved) stringResource(R.string.backup_file_saved) else stringResource(R.string.backup_save_file),
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
 
                         Spacer(Modifier.height(8.dp))

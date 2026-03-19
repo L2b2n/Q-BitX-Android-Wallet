@@ -53,6 +53,10 @@
     <string name="history_fee">手续费</string>
     <string name="history_date">日期</string>
     <string name="copied">已复制！</string>
+    <string name="import_from_file">从文件导入 (.qbx)</string>
+    <string name="import_or_paste">— 或手动粘贴备份密钥 —</string>
+    <string name="backup_save_file">保存为文件 (.qbx)</string>
+    <string name="backup_file_saved">文件已保存！</string>
 
     <!-- Send Screen -->
     <string name="send_title">发送 QBX</string>

@@ -159,10 +159,11 @@ class KeyManager(context: Context) {
         val parts = cleaned.split(":")
         require(parts.size == 2) { "Ungültiges Backup-Format (erwartet privkey:pubkey)" }
 
-        val privB64 = parts[0]
-        val pubB64 = parts[1]
-        val privkey = Base64.decode(privB64, Base64.DEFAULT)
-        val pubkey = Base64.decode(pubB64, Base64.DEFAULT)
+        val privkey = Base64.decode(parts[0], Base64.NO_WRAP)
+        val pubkey = Base64.decode(parts[1], Base64.NO_WRAP)
+        // Re-encode to clean Base64 for storage
+        val privB64 = Base64.encodeToString(privkey, Base64.NO_WRAP)
+        val pubB64 = Base64.encodeToString(pubkey, Base64.NO_WRAP)
 
         require(privkey.size == dilithium.getSecretKeyBytes()) {
             "Ungültige Private-Key-Länge: ${privkey.size}"
