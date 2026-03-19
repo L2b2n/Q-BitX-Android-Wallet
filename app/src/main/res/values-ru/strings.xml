@@ -37,6 +37,7 @@
     <string name="btn_send">Отправить</string>
     <string name="btn_receive">Получить</string>
     <string name="btn_refresh">Обновить</string>
+    <string name="btn_history">История</string>
     <string name="pq_address">PQ-адрес</string>
     <string name="connected">Подключено</string>
     <string name="not_connected">Не подключено</string>

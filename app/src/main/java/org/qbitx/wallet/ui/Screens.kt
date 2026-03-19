@@ -548,6 +548,20 @@ fun WalletScreen(
                     Spacer(Modifier.height(6.dp))
                     Text(stringResource(R.string.btn_refresh), fontSize = 13.sp, color = QBXOnSurface)
                 }
+
+                // History
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .solidCard()
+                        .clickable { onNavigateToHistory() }
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.List, null, tint = QBXPurple, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text(stringResource(R.string.btn_history), fontSize = 13.sp, color = QBXOnSurface)
+                }
             }
 
             Spacer(Modifier.height(16.dp))

@@ -37,6 +37,7 @@
     <string name="btn_send">发送</string>
     <string name="btn_receive">接收</string>
     <string name="btn_refresh">刷新</string>
+    <string name="btn_history">历史</string>
     <string name="pq_address">PQ 地址</string>
     <string name="connected">已连接</string>
     <string name="not_connected">未连接</string>
