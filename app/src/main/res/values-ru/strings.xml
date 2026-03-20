@@ -49,8 +49,13 @@
     <!-- History Screen -->
     <string name="history_title">История транзакций</string>
     <string name="history_count">%d транзакций</string>
-    <string name="history_empty">Транзакций пока нет.\nОтправленные транзакции появятся здесь.</string>
+    <string name="history_empty">Транзакций пока нет.\nТранзакции появятся здесь автоматически.</string>
     <string name="history_to">Кому:</string>
+    <string name="history_received">Получено:</string>
+    <string name="history_from_short">Получено</string>
+    <string name="history_to_short">Кому: </string>
+    <string name="tx_pending">Ожидание</string>
+    <string name="tx_confirmations">%d подтв.</string>
     <string name="history_fee">Комиссия</string>
     <string name="history_date">Дата</string>
     <string name="copied">Скопировано!</string>

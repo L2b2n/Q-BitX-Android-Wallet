@@ -18,7 +18,9 @@ data class TxRecord(
     val amount: Double,
     val fee: String,
     val timestamp: Long,
-    val walletId: Int
+    val walletId: Int,
+    val direction: String = "out",      // "in" or "out"
+    val confirmations: Int = -1          // -1 = unknown, 0 = pending
 )
 
 class KeyManager(context: Context) {
@@ -244,10 +246,14 @@ class KeyManager(context: Context) {
     // ---- TX History ----
 
     fun addTxRecord(txid: String, toAddress: String, amount: Double, fee: String) {
-        val record = TxRecord(txid, toAddress, amount, fee, System.currentTimeMillis(), getActiveWalletId())
+        val record = TxRecord(txid, toAddress, amount, fee, System.currentTimeMillis(), getActiveWalletId(), "out", 0)
         val history = getAllTxHistory().toMutableList()
         history.add(0, record)
         prefs.edit().putString("tx_history", gson.toJson(history)).apply()
+    }
+
+    fun replaceAllTxHistory(records: List<TxRecord>) {
+        prefs.edit().putString("tx_history", gson.toJson(records)).apply()
     }
 
     fun getAllTxHistory(): List<TxRecord> {

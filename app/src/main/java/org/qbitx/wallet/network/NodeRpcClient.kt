@@ -202,6 +202,49 @@ class NodeRpcClient(
         )
     }
 
+    /** Get full transaction details (verbose). */
+    suspend fun getTransactionDetails(txid: String): TxDetail? {
+        return try {
+            val result = call("getrawtransaction", txid, true)
+            val tx = result.getAsJsonObject("result") ?: return null
+            val confs = tx.get("confirmations")?.asInt ?: 0
+            val time = tx.get("time")?.asLong ?: tx.get("blocktime")?.asLong ?: 0L
+
+            val vouts = tx.getAsJsonArray("vout")?.map { v ->
+                val vo = v.asJsonObject
+                val value = vo.get("value")?.asDouble ?: 0.0
+                val spk = vo.getAsJsonObject("scriptPubKey")
+                val addrs = mutableListOf<String>()
+                spk?.get("address")?.asString?.let { addrs.add(it) }
+                if (addrs.isEmpty()) {
+                    spk?.getAsJsonArray("addresses")?.forEach { a -> addrs.add(a.asString) }
+                }
+                TxVout(value, addrs)
+            } ?: emptyList()
+
+            val vinTxids = tx.getAsJsonArray("vin")?.mapNotNull { v ->
+                val vi = v.asJsonObject
+                if (vi.has("coinbase")) null else vi.get("txid")?.asString
+            } ?: emptyList()
+
+            TxDetail(txid, confs, time, vouts, vinTxids)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Resolve which addresses funded the inputs of a TX. */
+    suspend fun resolveInputAddresses(txDetail: TxDetail): Set<String> {
+        val addresses = mutableSetOf<String>()
+        for (inTxid in txDetail.vinTxids) {
+            try {
+                val prev = getTransactionDetails(inTxid) ?: continue
+                prev.voutList.forEach { vo -> addresses.addAll(vo.addresses) }
+            } catch (_: Exception) {}
+        }
+        return addresses
+    }
+
     /** Test connection to the proxy/node. */
     suspend fun testConnection(): Boolean {
         return try {
@@ -217,5 +260,14 @@ data class SendResult(val txid: String, val fee: Long)
 data class BlockchainInfo(val chain: String, val blocks: Int, val headers: Int, val bestBlockHash: String)
 data class Utxo(val txid: String, val vout: Int, val address: String, val amount: Double, val confirmations: Int, val scriptPubKey: String, val isCoinbase: Boolean = false)
 data class ScanResult(val totalAmount: Double, val unspents: List<Utxo>, val immatureAmount: Double = 0.0, val immatureBlocks: Int = 0)
+
+data class TxVout(val value: Double, val addresses: List<String>)
+data class TxDetail(
+    val txid: String,
+    val confirmations: Int,
+    val time: Long,       // unix epoch seconds
+    val voutList: List<TxVout>,
+    val vinTxids: List<String>  // txids of inputs (to detect if we sent)
+)
 
 class RpcException(message: String) : Exception(message)

@@ -671,6 +671,7 @@ fun WalletScreen(
 
                 val dateFormat = remember { SimpleDateFormat("dd.MM.yy HH:mm", Locale.GERMAN) }
                 state.txHistory.take(5).forEach { tx ->
+                    val isIncoming = tx.direction == "in"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -678,18 +679,38 @@ fun WalletScreen(
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.ArrowUpward, null, tint = QBXRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                        Icon(
+                            if (isIncoming) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                            null,
+                            tint = if (isIncoming) QBXGreen.copy(alpha = 0.7f) else QBXRed.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "An: ${tx.toAddress.take(12)}...${tx.toAddress.takeLast(6)}",
+                                if (isIncoming) stringResource(R.string.history_from_short)
+                                else "${stringResource(R.string.history_to_short)} ${tx.toAddress.take(12)}...${tx.toAddress.takeLast(6)}",
                                 fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurface
                             )
-                            Text(dateFormat.format(Date(tx.timestamp)), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(dateFormat.format(Date(tx.timestamp)), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                                if (tx.confirmations in 0..5) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        if (tx.confirmations == 0) stringResource(R.string.tx_pending)
+                                        else stringResource(R.string.tx_confirmations, tx.confirmations),
+                                        fontSize = 10.sp,
+                                        color = if (tx.confirmations == 0) androidx.compose.ui.graphics.Color(0xFFFFAB40)
+                                               else QBXOnSurfaceDim.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
                         }
                         Text(
-                            "-${"%.4f".format(tx.amount)} QBX",
-                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = QBXRed.copy(alpha = 0.8f)
+                            if (isIncoming) "+${"%.4f".format(tx.amount)} QBX"
+                            else "-${"%.4f".format(tx.amount)} QBX",
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            color = if (isIncoming) QBXGreen.copy(alpha = 0.8f) else QBXRed.copy(alpha = 0.8f)
                         )
                     }
                     Spacer(Modifier.height(6.dp))
@@ -1243,6 +1264,7 @@ fun HistoryScreen(
             ) {
                 items(state.txHistory.size) { index ->
                     val tx = state.txHistory[index]
+                    val isIncoming = tx.direction == "in"
                     val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()) }
                     Column(
                         modifier = Modifier
@@ -1253,15 +1275,39 @@ fun HistoryScreen(
                             .padding(14.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ArrowUpward, null, tint = QBXRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                            Icon(
+                                if (isIncoming) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                                null,
+                                tint = if (isIncoming) QBXGreen.copy(alpha = 0.7f) else QBXRed.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                "-${"%.8f".format(tx.amount)} QBX",
-                                fontSize = 16.sp, fontWeight = FontWeight.Bold, color = QBXRed.copy(alpha = 0.8f)
+                                if (isIncoming) "+${"%.8f".format(tx.amount)} QBX"
+                                else "-${"%.8f".format(tx.amount)} QBX",
+                                fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                                color = if (isIncoming) QBXGreen.copy(alpha = 0.8f) else QBXRed.copy(alpha = 0.8f)
                             )
+                            Spacer(Modifier.weight(1f))
+                            // Confirmation badge
+                            if (tx.confirmations >= 0) {
+                                val badgeColor = when {
+                                    tx.confirmations == 0 -> androidx.compose.ui.graphics.Color(0xFFFFAB40)
+                                    tx.confirmations < 6 -> androidx.compose.ui.graphics.Color(0xFFFFAB40).copy(alpha = 0.7f)
+                                    else -> QBXGreen.copy(alpha = 0.7f)
+                                }
+                                Text(
+                                    if (tx.confirmations == 0) stringResource(R.string.tx_pending)
+                                    else stringResource(R.string.tx_confirmations, tx.confirmations),
+                                    fontSize = 11.sp, color = badgeColor, fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.history_to), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                        Text(
+                            if (isIncoming) stringResource(R.string.history_received) else stringResource(R.string.history_to),
+                            fontSize = 11.sp, color = QBXOnSurfaceDim
+                        )
                         Text(
                             tx.toAddress,
                             fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = QBXOnSurface,
@@ -1272,9 +1318,11 @@ fun HistoryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                Text(stringResource(R.string.history_fee), fontSize = 11.sp, color = QBXOnSurfaceDim)
-                                Text(tx.fee, fontSize = 12.sp, color = QBXOnSurface)
+                            if (!isIncoming && tx.fee.isNotEmpty()) {
+                                Column {
+                                    Text(stringResource(R.string.history_fee), fontSize = 11.sp, color = QBXOnSurfaceDim)
+                                    Text(tx.fee, fontSize = 12.sp, color = QBXOnSurface)
+                                }
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(stringResource(R.string.history_date), fontSize = 11.sp, color = QBXOnSurfaceDim)

@@ -49,8 +49,13 @@
     <!-- History Screen -->
     <string name="history_title">交易记录</string>
     <string name="history_count">%d 笔交易</string>
-    <string name="history_empty">暂无交易记录。\n发送的交易将显示在此处。</string>
+    <string name="history_empty">暂无交易记录。\n交易将自动显示在此处。</string>
     <string name="history_to">收款方:</string>
+    <string name="history_received">已收到:</string>
+    <string name="history_from_short">已收到</string>
+    <string name="history_to_short">发至: </string>
+    <string name="tx_pending">待确认</string>
+    <string name="tx_confirmations">%d 确认</string>
     <string name="history_fee">手续费</string>
     <string name="history_date">日期</string>
     <string name="copied">已复制！</string>

@@ -49,8 +49,13 @@
     <!-- History Screen -->
     <string name="history_title">Transaktionsverlauf</string>
     <string name="history_count">%d Transaktionen</string>
-    <string name="history_empty">Noch keine Transaktionen.\nGesendete Transaktionen erscheinen hier.</string>
+    <string name="history_empty">Noch keine Transaktionen.\nTransaktionen erscheinen hier automatisch.</string>
     <string name="history_to">An:</string>
+    <string name="history_received">Empfangen:</string>
+    <string name="history_from_short">Empfangen</string>
+    <string name="history_to_short">An: </string>
+    <string name="tx_pending">Ausstehend</string>
+    <string name="tx_confirmations">%d Best.</string>
     <string name="history_fee">Gebühr</string>
     <string name="history_date">Datum</string>
     <string name="copied">Kopiert!</string>

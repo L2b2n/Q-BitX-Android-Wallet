@@ -13,6 +13,7 @@ import org.qbitx.wallet.data.TxRecord
 import org.qbitx.wallet.data.WalletInfo
 import org.qbitx.wallet.network.NodeRpcClient
 import org.qbitx.wallet.network.RpcException
+import org.qbitx.wallet.network.TxDetail
 
 data class WalletUiState(
     val hasWallet: Boolean = false,
@@ -153,11 +154,89 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         immatureBalance = scanResult.immatureAmount,
                         immatureBlocks = scanResult.immatureBlocks
                     )
+                    // Build TX history from blockchain UTXOs
+                    scanTxHistory(address, scanResult.unspents.map { it.txid }.distinct())
                 }
                 val info = rpcClient.getBlockchainInfo()
                 _uiState.value = _uiState.value.copy(blockHeight = info.blocks)
             } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * Scan blockchain for TX history using UTXO txids.
+     * Discovers incoming TXs and updates confirmations for known outgoing TXs.
+     */
+    private suspend fun scanTxHistory(myAddress: String, utxoTxids: List<String>) {
+        try {
+            val walletId = keyManager.getActiveWalletId()
+            val localHistory = keyManager.getTxHistoryForActiveWallet()
+            val localByTxid = localHistory.associateBy { it.txid }
+
+            // Collect all txids we want to look up: UTXO txids + locally recorded ones
+            val allTxids = (utxoTxids + localHistory.map { it.txid }).distinct()
+
+            val newRecords = mutableListOf<TxRecord>()
+            val seenTxids = mutableSetOf<String>()
+
+            for (txid in allTxids) {
+                if (seenTxids.contains(txid)) continue
+                seenTxids.add(txid)
+
+                val detail = rpcClient.getTransactionDetails(txid) ?: continue
+
+                // Determine amounts paid TO us and FROM us
+                var receivedAmount = 0.0
+                var sentToOther = 0.0
+                var otherAddress = ""
+
+                for (vo in detail.voutList) {
+                    if (vo.addresses.contains(myAddress)) {
+                        receivedAmount += vo.value
+                    } else {
+                        sentToOther += vo.value
+                        if (otherAddress.isEmpty() && vo.addresses.isNotEmpty()) {
+                            otherAddress = vo.addresses.first()
+                        }
+                    }
+                }
+
+                // Check if we were spender by looking at input addresses
+                val local = localByTxid[txid]
+                val isSender = local != null && local.direction == "out"
+
+                val timestamp = if (detail.time > 0) detail.time * 1000 else
+                    local?.timestamp ?: System.currentTimeMillis()
+
+                if (isSender && local != null) {
+                    // Outgoing TX — keep local record data, update confirmations
+                    newRecords.add(local.copy(confirmations = detail.confirmations))
+                } else if (!isSender) {
+                    // Incoming TX — payment received to our address
+                    if (receivedAmount > 0) {
+                        newRecords.add(
+                            TxRecord(
+                                txid = txid,
+                                toAddress = myAddress,
+                                amount = receivedAmount,
+                                fee = "",
+                                timestamp = timestamp,
+                                walletId = walletId,
+                                direction = "in",
+                                confirmations = detail.confirmations
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Sort by timestamp descending (newest first)
+            val sorted = newRecords.sortedByDescending { it.timestamp }
+            keyManager.replaceAllTxHistory(sorted)
+            _uiState.value = _uiState.value.copy(
+                txHistory = sorted.filter { it.walletId == walletId }
+            )
+        } catch (_: Exception) {}
     }
 
     fun sendQBX(toAddress: String, amount: Double, feePolicy: String = "normal") {
