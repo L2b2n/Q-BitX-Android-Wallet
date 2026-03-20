@@ -34,6 +34,7 @@
     <string name="balance_label">Guthaben</string>
     <string name="block_label">Block %d</string>
     <string name="unconfirmed_label">Unbestätigt: %s QBX</string>
+    <string name="immature_label">Unreif: %1$s QBX (noch %2$d Blöcke)</string>
     <string name="btn_send">Senden</string>
     <string name="btn_receive">Empfangen</string>
     <string name="btn_refresh">Refresh</string>

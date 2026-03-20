@@ -80,19 +80,43 @@ class NodeRpcClient(
             ?: return ScanResult(totalAmount = 0.0, unspents = emptyList())
         val unspents = obj.getAsJsonArray("unspents")?.map { elem ->
             val u = elem.asJsonObject
+            val confs = u.get("height")?.asInt?.let { obj.get("height")?.asInt?.minus(it)?.plus(1) } ?: 0
+            val txid = u.get("txid").asString
+            // Check if coinbase for UTXOs with < 100 confirmations
+            val coinbase = if (confs < 100) isCoinbaseTx(txid) else false
             Utxo(
-                txid = u.get("txid").asString,
+                txid = txid,
                 vout = u.get("vout").asInt,
                 address = address,
                 amount = u.get("amount").asDouble,
-                confirmations = u.get("height")?.asInt?.let { obj.get("height")?.asInt?.minus(it)?.plus(1) } ?: 0,
-                scriptPubKey = u.get("scriptPubKey")?.asString ?: ""
+                confirmations = confs,
+                scriptPubKey = u.get("scriptPubKey")?.asString ?: "",
+                isCoinbase = coinbase
             )
         } ?: emptyList()
+
+        val immature = unspents.filter { it.isCoinbase && it.confirmations < 100 }
+        val immatureAmt = immature.sumOf { it.amount }
+        val immatureBlks = if (immature.isNotEmpty()) 100 - immature.maxOf { it.confirmations } else 0
+
         return ScanResult(
             totalAmount = obj.get("total_amount")?.asDouble ?: 0.0,
-            unspents = unspents
+            unspents = unspents,
+            immatureAmount = immatureAmt,
+            immatureBlocks = immatureBlks
         )
+    }
+
+    /** Check if a transaction is a coinbase transaction. */
+    private suspend fun isCoinbaseTx(txid: String): Boolean {
+        return try {
+            val result = call("getrawtransaction", txid, true)
+            val tx = result.getAsJsonObject("result")
+            val vin = tx?.getAsJsonArray("vin")
+            vin != null && vin.size() > 0 && vin[0].asJsonObject.has("coinbase")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -191,7 +215,7 @@ class NodeRpcClient(
 
 data class SendResult(val txid: String, val fee: Long)
 data class BlockchainInfo(val chain: String, val blocks: Int, val headers: Int, val bestBlockHash: String)
-data class Utxo(val txid: String, val vout: Int, val address: String, val amount: Double, val confirmations: Int, val scriptPubKey: String)
-data class ScanResult(val totalAmount: Double, val unspents: List<Utxo>)
+data class Utxo(val txid: String, val vout: Int, val address: String, val amount: Double, val confirmations: Int, val scriptPubKey: String, val isCoinbase: Boolean = false)
+data class ScanResult(val totalAmount: Double, val unspents: List<Utxo>, val immatureAmount: Double = 0.0, val immatureBlocks: Int = 0)
 
 class RpcException(message: String) : Exception(message)

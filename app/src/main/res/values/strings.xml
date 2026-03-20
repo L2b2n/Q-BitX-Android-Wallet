@@ -34,6 +34,7 @@
     <string name="balance_label">Balance</string>
     <string name="block_label">Block %d</string>
     <string name="unconfirmed_label">Unconfirmed: %s QBX</string>
+    <string name="immature_label">Immature: %1$s QBX (%2$d blocks left)</string>
     <string name="btn_send">Send</string>
     <string name="btn_receive">Receive</string>
     <string name="btn_refresh">Refresh</string>

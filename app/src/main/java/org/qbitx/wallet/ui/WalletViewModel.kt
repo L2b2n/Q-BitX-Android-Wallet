@@ -19,6 +19,8 @@ data class WalletUiState(
     val address: String = "",
     val balance: Double = 0.0,
     val unconfirmedBalance: Double = 0.0,
+    val immatureBalance: Double = 0.0,
+    val immatureBlocks: Int = 0,
     val nodeConnected: Boolean = false,
     val chain: String = "",
     val blockHeight: Int = 0,
@@ -144,8 +146,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val address = _uiState.value.address
                 if (address.isNotEmpty()) {
                     val scanResult = rpcClient.scanTxOutSet(address)
+                    val spendable = scanResult.totalAmount - scanResult.immatureAmount
                     _uiState.value = _uiState.value.copy(
-                        balance = scanResult.totalAmount, unconfirmedBalance = 0.0
+                        balance = spendable,
+                        unconfirmedBalance = 0.0,
+                        immatureBalance = scanResult.immatureAmount,
+                        immatureBlocks = scanResult.immatureBlocks
                     )
                 }
                 val info = rpcClient.getBlockchainInfo()
@@ -163,7 +169,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     ?: throw Exception("Kein Wallet vorhanden")
 
                 val scanResult = rpcClient.scanTxOutSet(myAddress)
-                if (scanResult.unspents.isEmpty()) throw Exception("Keine verfügbaren UTXOs")
+                val spendable = scanResult.unspents.filter { !(it.isCoinbase && it.confirmations < 100) }
+                if (spendable.isEmpty()) {
+                    if (scanResult.unspents.isNotEmpty()) {
+                        throw Exception("Alle UTXOs sind unreife Coinbase-Belohnungen (noch ${scanResult.immatureBlocks} Bl\u00f6cke)")
+                    }
+                    throw Exception("Keine verf\u00fcgbaren UTXOs")
+                }
 
                 val feeRate = TransactionBuilder.feeRateForPolicy(feePolicy)
                 val amountSat = Math.round(amount * 1e8)
@@ -171,7 +183,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val selected = mutableListOf<org.qbitx.wallet.network.Utxo>()
                 var totalInputSat = 0L
 
-                for (utxo in scanResult.unspents.sortedByDescending { it.amount }) {
+                for (utxo in spendable.sortedByDescending { it.amount }) {
                     selected.add(utxo)
                     totalInputSat += Math.round(utxo.amount * 1e8)
                     val fee = TransactionBuilder.estimateFee(selected.size, 2, feeRate)

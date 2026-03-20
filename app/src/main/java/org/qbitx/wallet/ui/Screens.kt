@@ -542,6 +542,15 @@ fun WalletScreen(
                             color = QBXOnSurface.copy(alpha = 0.6f)
                         )
                     }
+
+                    if (state.immatureBalance > 0.0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.immature_label, "%.8f".format(state.immatureBalance), state.immatureBlocks),
+                            fontSize = 13.sp,
+                            color = androidx.compose.ui.graphics.Color(0xFFFFAB40)
+                        )
+                    }
                 }
             }
 
