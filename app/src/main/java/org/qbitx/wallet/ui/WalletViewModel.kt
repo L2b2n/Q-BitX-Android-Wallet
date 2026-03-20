@@ -183,7 +183,14 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (seenTxids.contains(txid)) continue
                 seenTxids.add(txid)
 
-                val detail = rpcClient.getTransactionDetails(txid) ?: continue
+                val local = localByTxid[txid]
+                val detail = rpcClient.getTransactionDetails(txid)
+
+                // If lookup fails, preserve local record as-is
+                if (detail == null) {
+                    if (local != null) newRecords.add(local)
+                    continue
+                }
 
                 // Determine amounts paid TO us and FROM us
                 var receivedAmount = 0.0
@@ -201,8 +208,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
 
-                // Check if we were spender by looking at input addresses
-                val local = localByTxid[txid]
                 val isSender = local != null && local.direction == "out"
 
                 val timestamp = if (detail.time > 0) detail.time * 1000 else
