@@ -311,13 +311,21 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
                 val txid = rpcClient.sendRawTransaction(signedHex)
 
+                // Calculate actual fee paid
+                val actualFeeSat = if (actualChange > 0) totalInputSat - amountSat - actualChange else totalInputSat - amountSat
+                val feeQbx = actualFeeSat / 1e8
+
                 keyManager.addTxRecord(txid, toAddress, amount, feePolicy)
 
+                // Immediately deduct sent amount + fee from displayed balance
+                val currentBalance = _uiState.value.balance
+                val deducted = amount + feeQbx
                 _uiState.value = _uiState.value.copy(
                     isLoading = false, lastTxId = txid,
+                    balance = currentBalance - deducted,
+                    unconfirmedBalance = -deducted,
                     txHistory = keyManager.getTxHistoryForActiveWallet()
                 )
-                refreshBalance()
             } catch (e: RpcException) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
             } catch (e: Exception) {
