@@ -131,6 +131,6 @@
 
     <!-- About -->
     <string name="settings_about">Über</string>
-    <string name="settings_version">Q-BitX Wallet v1.2.0</string>
+    <string name="settings_version">Q-BitX Wallet v1.3.1</string>
     <string name="settings_subtitle">Post-Quantum Light Wallet · Dilithium3 / ML-DSA-65</string>
 </resources>
