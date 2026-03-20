@@ -208,15 +208,37 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
 
-                val isSender = local != null && local.direction == "out"
-
                 val timestamp = if (detail.time > 0) detail.time * 1000 else
                     local?.timestamp ?: System.currentTimeMillis()
 
-                if (isSender && local != null) {
-                    // Outgoing TX — keep local record data, update confirmations
-                    newRecords.add(local.copy(confirmations = detail.confirmations))
-                } else if (!isSender) {
+                // Determine direction: local record takes priority, otherwise check blockchain
+                val isSender = if (local != null) {
+                    local.direction == "out"
+                } else {
+                    // No local record — check if our address funded any input
+                    rpcClient.isAddressSpender(detail, myAddress)
+                }
+
+                if (isSender) {
+                    if (local != null) {
+                        // Outgoing TX with local data — update confirmations
+                        newRecords.add(local.copy(confirmations = detail.confirmations))
+                    } else {
+                        // Outgoing TX discovered from blockchain (no local record)
+                        newRecords.add(
+                            TxRecord(
+                                txid = txid,
+                                toAddress = otherAddress,
+                                amount = sentToOther,
+                                fee = "",
+                                timestamp = timestamp,
+                                walletId = walletId,
+                                direction = "out",
+                                confirmations = detail.confirmations
+                            )
+                        )
+                    }
+                } else {
                     // Incoming TX — payment received to our address
                     if (receivedAmount > 0) {
                         newRecords.add(

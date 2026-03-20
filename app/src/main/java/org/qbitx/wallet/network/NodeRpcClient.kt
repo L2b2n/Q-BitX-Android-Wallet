@@ -222,27 +222,38 @@ class NodeRpcClient(
                 TxVout(value, addrs)
             } ?: emptyList()
 
-            val vinTxids = tx.getAsJsonArray("vin")?.mapNotNull { v ->
+            val vinList = tx.getAsJsonArray("vin")?.mapNotNull { v ->
                 val vi = v.asJsonObject
-                if (vi.has("coinbase")) null else vi.get("txid")?.asString
+                if (vi.has("coinbase")) null
+                else {
+                    val inTxid = vi.get("txid")?.asString ?: return@mapNotNull null
+                    val inVout = vi.get("vout")?.asInt ?: 0
+                    TxVin(inTxid, inVout)
+                }
             } ?: emptyList()
 
-            TxDetail(txid, confs, time, vouts, vinTxids)
+            TxDetail(txid, confs, time, vouts, vinList)
         } catch (_: Exception) {
             null
         }
     }
 
-    /** Resolve which addresses funded the inputs of a TX. */
-    suspend fun resolveInputAddresses(txDetail: TxDetail): Set<String> {
-        val addresses = mutableSetOf<String>()
-        for (inTxid in txDetail.vinTxids) {
+    /**
+     * Check if a specific address funded any input of a transaction.
+     * Looks up the previous TX for each vin and checks the specific output.
+     */
+    suspend fun isAddressSpender(detail: TxDetail, address: String): Boolean {
+        for (vin in detail.vinList) {
             try {
-                val prev = getTransactionDetails(inTxid) ?: continue
-                prev.voutList.forEach { vo -> addresses.addAll(vo.addresses) }
+                val prevTx = getTransactionDetails(vin.txid) ?: continue
+                if (vin.vout < prevTx.voutList.size) {
+                    if (prevTx.voutList[vin.vout].addresses.contains(address)) {
+                        return true
+                    }
+                }
             } catch (_: Exception) {}
         }
-        return addresses
+        return false
     }
 
     /** Test connection to the proxy/node. */
@@ -262,12 +273,13 @@ data class Utxo(val txid: String, val vout: Int, val address: String, val amount
 data class ScanResult(val totalAmount: Double, val unspents: List<Utxo>, val immatureAmount: Double = 0.0, val immatureBlocks: Int = 0)
 
 data class TxVout(val value: Double, val addresses: List<String>)
+data class TxVin(val txid: String, val vout: Int)
 data class TxDetail(
     val txid: String,
     val confirmations: Int,
     val time: Long,       // unix epoch seconds
     val voutList: List<TxVout>,
-    val vinTxids: List<String>  // txids of inputs (to detect if we sent)
+    val vinList: List<TxVin>  // txid:vout pairs of inputs
 )
 
 class RpcException(message: String) : Exception(message)
