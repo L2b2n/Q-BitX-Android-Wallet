@@ -33,7 +33,8 @@ data class WalletUiState(
     val activeWalletName: String = "",
     val isLocked: Boolean = false,
     val hasPin: Boolean = false,
-    val txHistory: List<TxRecord> = emptyList()
+    val txHistory: List<TxRecord> = emptyList(),
+    val qbxPriceUsdt: Double? = null
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -159,6 +160,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val info = rpcClient.getBlockchainInfo()
                 _uiState.value = _uiState.value.copy(blockHeight = info.blocks)
+                // Fetch QBX price from KlingEx
+                val price = rpcClient.fetchQbxPriceUsdt()
+                if (price != null) {
+                    _uiState.value = _uiState.value.copy(qbxPriceUsdt = price)
+                }
             } catch (_: Exception) {}
         }
     }

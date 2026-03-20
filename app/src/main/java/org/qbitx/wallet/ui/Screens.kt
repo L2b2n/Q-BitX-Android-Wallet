@@ -534,6 +534,16 @@ fun WalletScreen(
                         )
                     }
 
+                    if (state.qbxPriceUsdt != null && state.balance > 0.0) {
+                        val totalValue = state.balance * state.qbxPriceUsdt
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "≈ $%.2f USDT".format(totalValue),
+                            fontSize = 14.sp,
+                            color = QBXOnSurface.copy(alpha = 0.7f)
+                        )
+                    }
+
                     if (state.unconfirmedBalance != 0.0) {
                         Spacer(Modifier.height(4.dp))
                         Text(

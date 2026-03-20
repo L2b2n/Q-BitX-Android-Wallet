@@ -256,6 +256,28 @@ class NodeRpcClient(
         return false
     }
 
+    /** Fetch QBX/USDT price from KlingEx public API. Returns null on failure. */
+    suspend fun fetchQbxPriceUsdt(): Double? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("https://api.klingex.io/api/tickers")
+                .get()
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: return@withContext null
+            val arr = JsonParser.parseString(body).asJsonArray
+            for (elem in arr) {
+                val obj = elem.asJsonObject
+                if (obj.get("ticker_id")?.asString == "QBX_USDT") {
+                    return@withContext obj.get("last_price")?.asString?.toDoubleOrNull()
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** Test connection to the proxy/node. */
     suspend fun testConnection(): Boolean {
         return try {
