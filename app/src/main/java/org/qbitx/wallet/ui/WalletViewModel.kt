@@ -41,6 +41,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     private val keyManager = KeyManager(application)
     val rpcClient = NodeRpcClient(rpcUrl = "https://qbitx.solopool.site/")
+    private var isRefreshing = false
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -143,7 +144,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshBalance() {
+        if (isRefreshing) return
         viewModelScope.launch {
+            isRefreshing = true
             try {
                 val address = _uiState.value.address
                 if (address.isNotEmpty()) {
@@ -165,7 +168,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (price != null) {
                     _uiState.value = _uiState.value.copy(qbxPriceUsdt = price)
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {} finally {
+                isRefreshing = false
+            }
         }
     }
 
@@ -265,10 +270,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             // Sort by timestamp descending (newest first)
             val sorted = newRecords.sortedByDescending { it.timestamp }
-            keyManager.replaceAllTxHistory(sorted)
-            _uiState.value = _uiState.value.copy(
-                txHistory = sorted.filter { it.walletId == walletId }
-            )
+            // Safety: never replace non-empty history with empty list
+            if (sorted.isNotEmpty() || localHistory.isEmpty()) {
+                keyManager.replaceAllTxHistory(sorted)
+                _uiState.value = _uiState.value.copy(
+                    txHistory = sorted.filter { it.walletId == walletId }
+                )
+            }
         } catch (_: Exception) {}
     }
 
@@ -348,11 +356,19 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 // Immediately deduct sent amount + fee from displayed balance
                 val currentBalance = _uiState.value.balance
                 val deducted = amount + feeQbx
+                // Preserve current UI history and prepend new TX (avoid SharedPrefs race)
+                val newRecord = TxRecord(
+                    txid = txid, toAddress = toAddress, amount = amount,
+                    fee = feePolicy, timestamp = System.currentTimeMillis(),
+                    walletId = keyManager.getActiveWalletId(),
+                    direction = "out", confirmations = 0
+                )
+                val updatedHistory = listOf(newRecord) + _uiState.value.txHistory
                 _uiState.value = _uiState.value.copy(
                     isLoading = false, lastTxId = txid,
                     balance = currentBalance - deducted,
                     unconfirmedBalance = -deducted,
-                    txHistory = keyManager.getTxHistoryForActiveWallet()
+                    txHistory = updatedHistory
                 )
             } catch (e: RpcException) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
