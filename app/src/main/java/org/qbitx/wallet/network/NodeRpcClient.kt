@@ -5,6 +5,9 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -78,22 +81,40 @@ class NodeRpcClient(
         val result = call("scantxoutset", "start", scanObjects)
         val obj = result.getAsJsonObject("result")
             ?: return ScanResult(totalAmount = 0.0, unspents = emptyList())
-        val unspents = obj.getAsJsonArray("unspents")?.map { elem ->
+
+        data class RawUtxo(val txid: String, val vout: Int, val amount: Double, val confs: Int, val scriptPubKey: String)
+
+        val rawUnspents = obj.getAsJsonArray("unspents")?.map { elem ->
             val u = elem.asJsonObject
             val confs = u.get("height")?.asInt?.let { obj.get("height")?.asInt?.minus(it)?.plus(1) } ?: 0
-            val txid = u.get("txid").asString
-            // Check if coinbase for UTXOs with < 100 confirmations
-            val coinbase = if (confs < 100) isCoinbaseTx(txid) else false
-            Utxo(
-                txid = txid,
+            RawUtxo(
+                txid = u.get("txid").asString,
                 vout = u.get("vout").asInt,
-                address = address,
                 amount = u.get("amount").asDouble,
-                confirmations = confs,
-                scriptPubKey = u.get("scriptPubKey")?.asString ?: "",
-                isCoinbase = coinbase
+                confs = confs,
+                scriptPubKey = u.get("scriptPubKey")?.asString ?: ""
             )
         } ?: emptyList()
+
+        // Check coinbase status in parallel for UTXOs with < 100 confirmations
+        val coinbaseResults = coroutineScope {
+            rawUnspents.map { raw ->
+                if (raw.confs < 100) async { isCoinbaseTx(raw.txid) }
+                else async { false }
+            }.awaitAll()
+        }
+
+        val unspents = rawUnspents.mapIndexed { i, raw ->
+            Utxo(
+                txid = raw.txid,
+                vout = raw.vout,
+                address = address,
+                amount = raw.amount,
+                confirmations = raw.confs,
+                scriptPubKey = raw.scriptPubKey,
+                isCoinbase = coinbaseResults[i]
+            )
+        }
 
         val immature = unspents.filter { it.isCoinbase && it.confirmations < 100 }
         val immatureAmt = immature.sumOf { it.amount }
@@ -254,6 +275,31 @@ class NodeRpcClient(
             } catch (_: Exception) {}
         }
         return false
+    }
+
+    /**
+     * Discover all transaction IDs for an address using address-indexed RPC methods.
+     * Returns null if the node does not support any address indexing.
+     */
+    suspend fun discoverAllTxIds(address: String): List<String>? {
+        // Try searchrawtransactions (Bitcoin forks with -txindex / -reindex)
+        try {
+            val json = call("searchrawtransactions", address, 1, 0, 9999)
+            val results = json.getAsJsonArray("result")
+            if (results != null && results.size() > 0) {
+                return results.mapNotNull { it.asJsonObject.get("txid")?.asString }
+            }
+        } catch (_: Exception) {}
+        // Try getaddresstxids (insight-style address index)
+        try {
+            val params = JsonObject().apply { add("addresses", JsonArray().apply { add(address) }) }
+            val json = call("getaddresstxids", params)
+            val results = json.getAsJsonArray("result")
+            if (results != null && results.size() > 0) {
+                return results.map { it.asString }
+            }
+        } catch (_: Exception) {}
+        return null
     }
 
     /** Fetch QBX/USDT price from KlingEx public API. Returns null on failure. */

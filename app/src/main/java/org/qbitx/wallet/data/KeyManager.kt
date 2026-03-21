@@ -256,6 +256,12 @@ class KeyManager(context: Context) {
         prefs.edit().putString("tx_history", gson.toJson(records)).apply()
     }
 
+    fun replaceTxHistoryForWallet(records: List<TxRecord>, walletId: Int) {
+        val others = getAllTxHistory().filter { it.walletId != walletId }
+        val merged = (others + records).sortedByDescending { it.timestamp }
+        prefs.edit().putString("tx_history", gson.toJson(merged)).apply()
+    }
+
     fun getAllTxHistory(): List<TxRecord> {
         val json = prefs.getString("tx_history", null) ?: return emptyList()
         return try {

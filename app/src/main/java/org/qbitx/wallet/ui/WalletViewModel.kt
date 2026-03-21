@@ -3,10 +3,14 @@ package org.qbitx.wallet.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import org.qbitx.wallet.crypto.TransactionBuilder
 import org.qbitx.wallet.data.KeyManager
 import org.qbitx.wallet.data.TxRecord
@@ -149,6 +153,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             isRefreshing = true
             try {
                 val address = _uiState.value.address
+
+                // Launch price fetch and blockchain info concurrently
+                val priceDeferred = async { rpcClient.fetchQbxPriceUsdt() }
+                val infoDeferred = async { rpcClient.getBlockchainInfo() }
+
                 if (address.isNotEmpty()) {
                     val scanResult = rpcClient.scanTxOutSet(address)
                     val spendable = scanResult.totalAmount - scanResult.immatureAmount
@@ -158,13 +167,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         immatureBalance = scanResult.immatureAmount,
                         immatureBlocks = scanResult.immatureBlocks
                     )
-                    // Build TX history from blockchain UTXOs
                     scanTxHistory(address, scanResult.unspents.map { it.txid }.distinct())
                 }
-                val info = rpcClient.getBlockchainInfo()
+
+                val info = infoDeferred.await()
                 _uiState.value = _uiState.value.copy(blockHeight = info.blocks)
-                // Fetch QBX price from KlingEx
-                val price = rpcClient.fetchQbxPriceUsdt()
+
+                val price = priceDeferred.await()
                 if (price != null) {
                     _uiState.value = _uiState.value.copy(qbxPriceUsdt = price)
                 }
@@ -184,26 +193,51 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val localHistory = keyManager.getTxHistoryForActiveWallet()
             val localByTxid = localHistory.associateBy { it.txid }
 
-            // Collect all txids we want to look up: UTXO txids + locally recorded ones
-            val allTxids = (utxoTxids + localHistory.map { it.txid }).distinct()
+            // Try full address-indexed discovery for complete TX history
+            val discoveredTxids = rpcClient.discoverAllTxIds(myAddress) ?: emptyList()
 
-            val newRecords = mutableListOf<TxRecord>()
-            val seenTxids = mutableSetOf<String>()
+            val allTxids = (utxoTxids + localHistory.map { it.txid } + discoveredTxids).distinct()
+
+            // Skip re-fetching TXs already deeply confirmed (won't change)
+            val CONFIRMED_THRESHOLD = 6
+            val alreadyConfirmed = mutableListOf<TxRecord>()
+            val txidsToFetch = mutableListOf<String>()
 
             for (txid in allTxids) {
-                if (seenTxids.contains(txid)) continue
-                seenTxids.add(txid)
-
                 val local = localByTxid[txid]
-                val detail = rpcClient.getTransactionDetails(txid)
+                if (local != null && local.confirmations >= CONFIRMED_THRESHOLD) {
+                    alreadyConfirmed.add(local)
+                } else {
+                    txidsToFetch.add(txid)
+                }
+            }
 
-                // If lookup fails, preserve local record as-is
+            // Fetch TX details in parallel (up to 8 concurrent requests)
+            val semaphore = Semaphore(8)
+            val fetchedDetails: List<Pair<String, TxDetail?>> = coroutineScope {
+                txidsToFetch.map { txid ->
+                    async {
+                        semaphore.acquire()
+                        try {
+                            txid to rpcClient.getTransactionDetails(txid)
+                        } finally {
+                            semaphore.release()
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            val newRecords = mutableListOf<TxRecord>()
+            newRecords.addAll(alreadyConfirmed)
+
+            for ((txid, detail) in fetchedDetails) {
+                val local = localByTxid[txid]
+
                 if (detail == null) {
                     if (local != null) newRecords.add(local)
                     continue
                 }
 
-                // Determine amounts paid TO us and FROM us
                 var receivedAmount = 0.0
                 var sentToOther = 0.0
                 var otherAddress = ""
@@ -222,20 +256,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val timestamp = if (detail.time > 0) detail.time * 1000 else
                     local?.timestamp ?: System.currentTimeMillis()
 
-                // Determine direction: local record takes priority, otherwise check blockchain
                 val isSender = if (local != null) {
                     local.direction == "out"
                 } else {
-                    // No local record — check if our address funded any input
                     rpcClient.isAddressSpender(detail, myAddress)
                 }
 
                 if (isSender) {
                     if (local != null) {
-                        // Outgoing TX with local data — update confirmations
                         newRecords.add(local.copy(confirmations = detail.confirmations))
                     } else {
-                        // Outgoing TX discovered from blockchain (no local record)
                         newRecords.add(
                             TxRecord(
                                 txid = txid,
@@ -250,7 +280,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     }
                 } else {
-                    // Incoming TX — payment received to our address
                     if (receivedAmount > 0) {
                         newRecords.add(
                             TxRecord(
@@ -268,14 +297,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
-            // Sort by timestamp descending (newest first)
             val sorted = newRecords.sortedByDescending { it.timestamp }
-            // Safety: never replace non-empty history with empty list
             if (sorted.isNotEmpty() || localHistory.isEmpty()) {
-                keyManager.replaceAllTxHistory(sorted)
-                _uiState.value = _uiState.value.copy(
-                    txHistory = sorted.filter { it.walletId == walletId }
-                )
+                keyManager.replaceTxHistoryForWallet(sorted, walletId)
+                _uiState.value = _uiState.value.copy(txHistory = sorted)
             }
         } catch (_: Exception) {}
     }
