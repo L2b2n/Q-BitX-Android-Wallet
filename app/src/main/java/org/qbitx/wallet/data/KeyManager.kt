@@ -243,6 +243,14 @@ class KeyManager(context: Context) {
         prefs.edit().remove("pin_hash").apply()
     }
 
+    // ---- RPC URL ----
+
+    fun getSavedRpcUrl(): String? = prefs.getString("rpc_url", null)
+
+    fun saveRpcUrl(url: String) {
+        prefs.edit().putString("rpc_url", url).apply()
+    }
+
     // ---- TX History ----
 
     fun addTxRecord(txid: String, toAddress: String, amount: Double, fee: String) {

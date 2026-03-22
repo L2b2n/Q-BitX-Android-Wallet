@@ -53,6 +53,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     init {
         val hasPIN = keyManager.hasPin()
         _uiState.value = _uiState.value.copy(isLocked = hasPIN, hasPin = hasPIN)
+        val savedUrl = keyManager.getSavedRpcUrl()
+        if (!savedUrl.isNullOrEmpty()) {
+            _uiState.value = _uiState.value.copy(rpcUrl = savedUrl)
+            rpcClient.configure(savedUrl)
+        }
         checkWallet()
         autoConnect()
     }
@@ -130,6 +135,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     fun connectToNode(rpcUrl: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, rpcUrl = rpcUrl)
+            keyManager.saveRpcUrl(rpcUrl)
             rpcClient.configure(rpcUrl)
             try {
                 val info = rpcClient.getBlockchainInfo()
