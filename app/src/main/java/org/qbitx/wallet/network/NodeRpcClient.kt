@@ -211,6 +211,53 @@ class NodeRpcClient(
         return result.get("result")?.asString ?: throw RpcException("Failed to broadcast tx")
     }
 
+    /**
+     * Estimate fee rate via the node's estimatesmartfee.
+     * @param confTarget Number of blocks for confirmation target (e.g. 2, 6, 25)
+     * @return fee rate in sat/vB, or null if estimation unavailable
+     */
+    suspend fun estimateSmartFee(confTarget: Int): Double? {
+        return try {
+            val result = call("estimatesmartfee", confTarget)
+            val obj = result.getAsJsonObject("result") ?: return null
+            val feeRateBtcKb = obj.get("feerate")?.asDouble ?: return null
+            // Convert BTC/kB to sat/vB: BTC/kB * 1e8 / 1000
+            feeRateBtcKb * 1e8 / 1000.0
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Fetch dynamic fee rates for low/normal/high.
+     * Returns a Triple(low, normal, high) in sat/vB.
+     * Falls back to defaults if the node doesn't support estimatesmartfee.
+     */
+    suspend fun fetchFeeRates(): Triple<Double, Double, Double> = coroutineScope {
+        val highDef = async { estimateSmartFee(2) }   // next 2 blocks
+        val normDef = async { estimateSmartFee(6) }   // next 6 blocks
+        val lowDef  = async { estimateSmartFee(25) }  // next 25 blocks
+        val high = highDef.await() ?: 15.0
+        val norm = normDef.await() ?: 5.0
+        val low  = lowDef.await()  ?: 1.0
+        Triple(
+            low.coerceAtLeast(1.0),
+            norm.coerceAtLeast(1.0),
+            high.coerceAtLeast(1.0)
+        )
+    }
+
+    /** Validate an address via the node. Returns true if valid. */
+    suspend fun validateAddress(address: String): Boolean {
+        return try {
+            val result = call("validateaddress", address)
+            val obj = result.getAsJsonObject("result") ?: return false
+            obj.get("isvalid")?.asBoolean ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Get blockchain info (stateless). */
     suspend fun getBlockchainInfo(): BlockchainInfo {
         val result = call("getblockchaininfo")

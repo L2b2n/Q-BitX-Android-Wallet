@@ -38,7 +38,10 @@ data class WalletUiState(
     val isLocked: Boolean = false,
     val hasPin: Boolean = false,
     val txHistory: List<TxRecord> = emptyList(),
-    val qbxPriceUsdt: Double? = null
+    val qbxPriceUsdt: Double? = null,
+    val feeLow: Double = 1.0,
+    val feeNormal: Double = 5.0,
+    val feeHigh: Double = 15.0
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -69,6 +72,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.value = _uiState.value.copy(
                     nodeConnected = true, chain = info.chain, blockHeight = info.blocks
                 )
+                refreshFeeRates()
                 refreshBalance()
             } catch (_: Exception) {}
         }
@@ -143,6 +147,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     nodeConnected = true, chain = info.chain,
                     blockHeight = info.blocks, isLoading = false
                 )
+                refreshFeeRates()
                 refreshBalance()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -311,10 +316,26 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         } catch (_: Exception) {}
     }
 
+    private fun refreshFeeRates() {
+        viewModelScope.launch {
+            try {
+                val (low, normal, high) = rpcClient.fetchFeeRates()
+                _uiState.value = _uiState.value.copy(
+                    feeLow = low, feeNormal = normal, feeHigh = high
+                )
+            } catch (_: Exception) { /* keep defaults */ }
+        }
+    }
+
     fun sendQBX(toAddress: String, amount: Double, feePolicy: String = "normal") {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, lastTxId = null)
             try {
+                // Validate address via node
+                if (!rpcClient.validateAddress(toAddress)) {
+                    throw Exception("Ungültige Empfängeradresse")
+                }
+
                 val myAddress = _uiState.value.address
                 val publicKey = keyManager.getPublicKey()
                     ?: throw Exception("Kein Wallet vorhanden")
@@ -328,7 +349,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     throw Exception("Keine verf\u00fcgbaren UTXOs")
                 }
 
-                val feeRate = TransactionBuilder.feeRateForPolicy(feePolicy)
+                val state = _uiState.value
+                val feeRate = when (feePolicy) {
+                    "low" -> state.feeLow.toLong().coerceAtLeast(1L)
+                    "high" -> state.feeHigh.toLong().coerceAtLeast(1L)
+                    else -> state.feeNormal.toLong().coerceAtLeast(1L)
+                }
                 val amountSat = Math.round(amount * 1e8)
 
                 val selected = mutableListOf<org.qbitx.wallet.network.Utxo>()

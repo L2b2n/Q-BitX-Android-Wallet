@@ -931,9 +931,9 @@ fun SendScreen(
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 listOf(
-                    Triple("low", stringResource(R.string.fee_low), "1 sat/vB"),
-                    Triple("normal", stringResource(R.string.fee_normal), "5 sat/vB"),
-                    Triple("high", stringResource(R.string.fee_high), "15 sat/vB")
+                    Triple("low", stringResource(R.string.fee_low), "%.1f sat/vB".format(state.feeLow)),
+                    Triple("normal", stringResource(R.string.fee_normal), "%.1f sat/vB".format(state.feeNormal)),
+                    Triple("high", stringResource(R.string.fee_high), "%.1f sat/vB".format(state.feeHigh))
                 ).forEach { (key, label, sub) ->
                     val selected = feePolicy == key
                     Column(
