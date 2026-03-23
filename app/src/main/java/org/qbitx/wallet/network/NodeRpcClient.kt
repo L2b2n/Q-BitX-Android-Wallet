@@ -76,7 +76,11 @@ class NodeRpcClient(
         val responseBody = response.body?.string()
             ?: throw RpcException("Empty response from node")
 
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = try {
+            JsonParser.parseString(responseBody).asJsonObject
+        } catch (e: Exception) {
+            throw RpcException("Invalid response from node (not JSON): ${responseBody.take(200)}")
+        }
 
         if (json.has("error") && !json.get("error").isJsonNull) {
             val error = json.getAsJsonObject("error")
@@ -280,6 +284,7 @@ class NodeRpcClient(
     suspend fun getBlockchainInfo(): BlockchainInfo {
         val result = call("getblockchaininfo")
         val obj = result.getAsJsonObject("result")
+            ?: throw RpcException("Invalid getblockchaininfo response")
         return BlockchainInfo(
             chain = obj.get("chain")?.asString ?: "unknown",
             blocks = obj.get("blocks")?.asInt ?: 0,
