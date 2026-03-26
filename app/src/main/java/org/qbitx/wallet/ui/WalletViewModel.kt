@@ -39,6 +39,8 @@ data class WalletUiState(
     val hasPin: Boolean = false,
     val txHistory: List<TxRecord> = emptyList(),
     val qbxPriceUsdt: Double? = null,
+    val isScanningHistory: Boolean = false,
+    val scanProgressText: String? = null,
     val feeLow: Double = 1.0,
     val feeNormal: Double = 5.0,
     val feeHigh: Double = 15.0
@@ -205,7 +207,32 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val localByTxid = localHistory.associateBy { it.txid }
 
             // Try full address-indexed discovery for complete TX history
-            val discoveredTxids = rpcClient.discoverAllTxIds(myAddress) ?: emptyList()
+            // Falls back to block scanning when address indexing is unavailable
+            val blockHeight = _uiState.value.blockHeight
+            val needsDeepScan = localHistory.isEmpty()
+            val discoveredTxids: List<String>
+            if (needsDeepScan && blockHeight > 0) {
+                _uiState.value = _uiState.value.copy(
+                    isScanningHistory = true,
+                    scanProgressText = "Scanning blockchain for transaction history..."
+                )
+                discoveredTxids = rpcClient.discoverAllTxIds(
+                    myAddress,
+                    blockHeight = blockHeight,
+                    onProgress = { scanned, total ->
+                        val pct = if (total > 0) scanned * 100 / total else 0
+                        _uiState.value = _uiState.value.copy(
+                            scanProgressText = "Scanning blocks... $pct%"
+                        )
+                    }
+                ) ?: emptyList()
+                _uiState.value = _uiState.value.copy(
+                    isScanningHistory = false,
+                    scanProgressText = null
+                )
+            } else {
+                discoveredTxids = rpcClient.discoverAllTxIds(myAddress) ?: emptyList()
+            }
 
             val allTxids = (utxoTxids + localHistory.map { it.txid } + discoveredTxids).distinct()
 
@@ -449,6 +476,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 keyManager.importWallet(backup, name)
                 checkWallet()
                 _uiState.value = _uiState.value.copy(isLoading = false)
+                refreshBalance()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,

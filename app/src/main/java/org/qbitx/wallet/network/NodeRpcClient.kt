@@ -349,9 +349,13 @@ class NodeRpcClient(
 
     /**
      * Discover all transaction IDs for an address using address-indexed RPC methods.
-     * Returns null if the node does not support any address indexing.
+     * Falls back to scanning all blocks if the node does not support address indexing.
      */
-    suspend fun discoverAllTxIds(address: String): List<String>? {
+    suspend fun discoverAllTxIds(
+        address: String,
+        blockHeight: Int = 0,
+        onProgress: ((Int, Int) -> Unit)? = null
+    ): List<String>? {
         // Try searchrawtransactions (Bitcoin forks with -txindex / -reindex)
         try {
             val json = call("searchrawtransactions", address, 1, 0, 9999)
@@ -369,7 +373,96 @@ class NodeRpcClient(
                 return results.map { it.asString }
             }
         } catch (_: Exception) {}
+        // Fallback: scan all blocks for transactions involving this address
+        if (blockHeight > 0) {
+            return scanBlocksForAddress(address, blockHeight, onProgress)
+        }
         return null
+    }
+
+    /**
+     * Scan blockchain blocks for transactions involving an address.
+     * Used as fallback when address indexing is unavailable on the node.
+     */
+    private suspend fun scanBlocksForAddress(
+        address: String,
+        toHeight: Int,
+        onProgress: ((Int, Int) -> Unit)? = null
+    ): List<String> {
+        val found = mutableSetOf<String>()
+        val batchSize = 10
+        var currentHeight = toHeight
+
+        while (currentHeight >= 0) {
+            val batchEnd = maxOf(currentHeight - batchSize + 1, 0)
+            val heights = (batchEnd..currentHeight).toList()
+
+            val batchResults: List<List<String>> = coroutineScope {
+                heights.map { h ->
+                    async { txidsInBlock(h, address) }
+                }.awaitAll()
+            }
+
+            for (txids in batchResults) {
+                found.addAll(txids)
+            }
+            onProgress?.invoke(toHeight - batchEnd + 1, toHeight)
+            currentHeight = batchEnd - 1
+        }
+
+        return found.toList()
+    }
+
+    private suspend fun txidsInBlock(height: Int, address: String): List<String> {
+        return try {
+            val hashJson = call("getblockhash", height)
+            val hash = hashJson.get("result")?.asString ?: return emptyList()
+
+            val blockJson = call("getblock", hash, 2)
+            val block = blockJson.getAsJsonObject("result") ?: return emptyList()
+            val txs = block.getAsJsonArray("tx") ?: return emptyList()
+
+            val txids = mutableListOf<String>()
+            for (txElem in txs) {
+                val tx = txElem.asJsonObject
+                val txid = tx.get("txid")?.asString ?: continue
+                var addressFound = false
+
+                // Check outputs (catches incoming TXs + change from outgoing TXs)
+                val vouts = tx.getAsJsonArray("vout")
+                if (vouts != null) {
+                    for (voutElem in vouts) {
+                        val vout = voutElem.asJsonObject
+                        val spk = vout.getAsJsonObject("scriptPubKey") ?: continue
+                        val addr = spk.get("address")?.asString
+                        if (addr == address) { addressFound = true; break }
+                        val addrs = spk.getAsJsonArray("addresses")
+                        if (addrs != null && addrs.any { it.asString == address }) { addressFound = true; break }
+                    }
+                }
+
+                // Check inputs via prevout if available (catches outgoing TXs without extra calls)
+                if (!addressFound) {
+                    val vins = tx.getAsJsonArray("vin")
+                    if (vins != null) {
+                        for (vinElem in vins) {
+                            val vin = vinElem.asJsonObject
+                            val prevout = vin.getAsJsonObject("prevout") ?: continue
+                            val spk = prevout.getAsJsonObject("scriptPubKey") ?: continue
+                            val addr = spk.get("address")?.asString
+                            if (addr == address) { addressFound = true; break }
+                            val addrs = spk.getAsJsonArray("addresses")
+                            if (addrs != null && addrs.any { it.asString == address }) { addressFound = true; break }
+                        }
+                    }
+                }
+
+                if (addressFound) txids.add(txid)
+            }
+            txids
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     /** Fetch QBX/USDT price from KlingEx public API. Returns null on failure. */
