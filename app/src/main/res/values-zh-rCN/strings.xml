@@ -35,6 +35,8 @@
     <string name="block_label">区块 %d</string>
     <string name="unconfirmed_label">未确认: %s QBX</string>
     <string name="immature_label">未成熟: %1$s QBX (还需 %2$d 个区块)</string>
+    <string name="immature_title">⛏ 挖矿奖励正在成熟</string>
+    <string name="immature_detail">%1$s QBX 将在约 %2$d 个区块后可用</string>
     <string name="btn_send">发送</string>
     <string name="btn_receive">接收</string>
     <string name="btn_refresh">刷新</string>

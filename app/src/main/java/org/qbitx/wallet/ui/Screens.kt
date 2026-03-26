@@ -564,6 +564,40 @@ fun WalletScreen(
                 }
             }
 
+            // Immature mining reward banner
+            if (state.immatureBalance > 0.0) {
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(androidx.compose.ui.graphics.Color(0xFFFFAB40).copy(alpha = 0.15f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "⛏",
+                            fontSize = 22.sp
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.immature_title),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = androidx.compose.ui.graphics.Color(0xFFFFAB40)
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                stringResource(R.string.immature_detail, "%.4f".format(state.immatureBalance), state.immatureBlocks),
+                                fontSize = 12.sp,
+                                color = QBXOnSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
 
             // Action buttons row (compact)

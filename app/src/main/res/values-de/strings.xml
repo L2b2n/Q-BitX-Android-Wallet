@@ -35,6 +35,8 @@
     <string name="block_label">Block %d</string>
     <string name="unconfirmed_label">Unbestätigt: %s QBX</string>
     <string name="immature_label">Unreif: %1$s QBX (noch %2$d Blöcke)</string>
+    <string name="immature_title">⛏ Mining-Belohnung reift</string>
+    <string name="immature_detail">%1$s QBX werden in ~%2$d Blöcken verfügbar</string>
     <string name="btn_send">Senden</string>
     <string name="btn_receive">Empfangen</string>
     <string name="btn_refresh">Refresh</string>

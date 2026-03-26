@@ -35,6 +35,8 @@
     <string name="block_label">Block %d</string>
     <string name="unconfirmed_label">Unconfirmed: %s QBX</string>
     <string name="immature_label">Immature: %1$s QBX (%2$d blocks left)</string>
+    <string name="immature_title">⛏ Mining Reward Maturing</string>
+    <string name="immature_detail">%1$s QBX will be spendable in ~%2$d blocks</string>
     <string name="btn_send">Send</string>
     <string name="btn_receive">Receive</string>
     <string name="btn_refresh">Refresh</string>

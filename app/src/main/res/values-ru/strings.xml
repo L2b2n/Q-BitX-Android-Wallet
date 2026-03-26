@@ -35,6 +35,8 @@
     <string name="block_label">Блок %d</string>
     <string name="unconfirmed_label">Не подтверждено: %s QBX</string>
     <string name="immature_label">Незрелые: %1$s QBX (ещё %2$d блоков)</string>
+    <string name="immature_title">⛏ Награда за майнинг созревает</string>
+    <string name="immature_detail">%1$s QBX станут доступны через ~%2$d блоков</string>
     <string name="btn_send">Отправить</string>
     <string name="btn_receive">Получить</string>
     <string name="btn_refresh">Обновить</string>
