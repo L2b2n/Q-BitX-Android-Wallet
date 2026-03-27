@@ -340,9 +340,21 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         if (baseTxids.isNotEmpty()) {
             try {
                 val baseRecords = fetchTxRecords(baseTxids, localByTxid, myAddress, walletId)
-                val sorted = baseRecords.sortedByDescending { it.timestamp }
-                keyManager.replaceTxHistoryForWallet(sorted, walletId)
-                _uiState.value = _uiState.value.copy(txHistory = sorted)
+                // Re-read storage to preserve TXs added during processing (e.g. from sendQBX)
+                val latestLocal = keyManager.getTxHistoryForActiveWallet()
+                val resultByTxid = baseRecords.associateBy { it.txid }
+                val merged = baseRecords.toMutableList()
+                for (tx in latestLocal) {
+                    if (tx.txid !in resultByTxid) {
+                        merged.add(tx)
+                    }
+                }
+                val sorted = merged.sortedByDescending { it.timestamp }
+                // Only write if still on the same wallet (guard against cancelled/stale jobs)
+                if (keyManager.getActiveWalletId() == walletId) {
+                    keyManager.replaceTxHistoryForWallet(sorted, walletId)
+                    _uiState.value = _uiState.value.copy(txHistory = sorted)
+                }
             } catch (_: Exception) {}
         }
 
@@ -379,13 +391,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     isScanningHistory = false,
                     scanProgressText = null
                 )
-                if (highestScanned > lastScanned) {
+                if (highestScanned > lastScanned && keyManager.getActiveWalletId() == walletId) {
                     keyManager.setLastScannedHeight(walletId, highestScanned)
                 }
 
                 // Fetch details for newly discovered TXs
                 val newTxids = txids.filter { it !in baseTxids }
-                if (newTxids.isNotEmpty()) {
+                if (newTxids.isNotEmpty() && keyManager.getActiveWalletId() == walletId) {
                     val currentHistory = keyManager.getTxHistoryForActiveWallet()
                     val currentByTxid = currentHistory.associateBy { it.txid }
                     val extraTxids = newTxids.filter { it !in currentByTxid }
