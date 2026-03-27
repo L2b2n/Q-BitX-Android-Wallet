@@ -251,6 +251,16 @@ class KeyManager(context: Context) {
         prefs.edit().putString("rpc_url", url).apply()
     }
 
+    // ---- Last Scanned Height (per wallet, for incremental block scanning) ----
+
+    fun getLastScannedHeight(walletId: Int): Int {
+        return prefs.getInt("w${walletId}_last_scan", 0)
+    }
+
+    fun setLastScannedHeight(walletId: Int, height: Int) {
+        prefs.edit().putInt("w${walletId}_last_scan", height).apply()
+    }
+
     // ---- TX History ----
 
     fun addTxRecord(txid: String, toAddress: String, amount: Double, fee: String) {

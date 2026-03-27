@@ -198,7 +198,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Scan blockchain for TX history using UTXO txids.
-     * Discovers incoming TXs and updates confirmations for known outgoing TXs.
+     * Uses incremental scanning: only fetches new blocks since last scan.
+     * Stores lastScannedHeight per wallet to avoid re-scanning.
      */
     private suspend fun scanTxHistory(myAddress: String, utxoTxids: List<String>) {
         try {
@@ -206,32 +207,44 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val localHistory = keyManager.getTxHistoryForActiveWallet()
             val localByTxid = localHistory.associateBy { it.txid }
 
-            // Try full address-indexed discovery for complete TX history
-            // Falls back to block scanning when address indexing is unavailable
             val blockHeight = _uiState.value.blockHeight
-            val needsDeepScan = localHistory.isEmpty()
+            var lastScanned = keyManager.getLastScannedHeight(walletId)
+
+            // Reset scan marker if history was cleared (e.g. after re-import)
+            if (localHistory.isEmpty() && lastScanned > 0) {
+                lastScanned = 0
+            }
+
             val discoveredTxids: List<String>
-            if (needsDeepScan && blockHeight > 0) {
-                _uiState.value = _uiState.value.copy(
-                    isScanningHistory = true,
-                    scanProgressText = "Scanning blockchain for transaction history..."
-                )
-                discoveredTxids = rpcClient.discoverAllTxIds(
+            if (blockHeight > lastScanned) {
+                val totalBlocks = blockHeight - lastScanned
+                if (totalBlocks > 100) {
+                    _uiState.value = _uiState.value.copy(
+                        isScanningHistory = true,
+                        scanProgressText = "Scanning blockchain..."
+                    )
+                }
+                val (txids, highestScanned) = rpcClient.discoverAllTxIds(
                     myAddress,
                     blockHeight = blockHeight,
+                    lastScannedHeight = lastScanned,
                     onProgress = { scanned, total ->
                         val pct = if (total > 0) scanned * 100 / total else 0
                         _uiState.value = _uiState.value.copy(
                             scanProgressText = "Scanning blocks... $pct%"
                         )
                     }
-                ) ?: emptyList()
+                )
+                discoveredTxids = txids
                 _uiState.value = _uiState.value.copy(
                     isScanningHistory = false,
                     scanProgressText = null
                 )
+                if (highestScanned > lastScanned) {
+                    keyManager.setLastScannedHeight(walletId, highestScanned)
+                }
             } else {
-                discoveredTxids = rpcClient.discoverAllTxIds(myAddress) ?: emptyList()
+                discoveredTxids = emptyList()
             }
 
             val allTxids = (utxoTxids + localHistory.map { it.txid } + discoveredTxids).distinct()
