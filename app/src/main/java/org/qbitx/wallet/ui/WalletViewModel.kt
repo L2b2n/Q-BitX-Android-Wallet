@@ -363,9 +363,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val blockHeight = _uiState.value.blockHeight
             var lastScanned = keyManager.getLastScannedHeight(walletId)
 
-            // Reset scan marker if history was cleared (e.g. after re-import)
-            if (localHistory.isEmpty() && lastScanned > 0) {
+            // Detect TX data loss and force full rescan when needed
+            val lastKnownCount = keyManager.getLastScanTxCount(walletId)
+            if (lastScanned > 0 && (localHistory.isEmpty() || lastKnownCount < 0 || localHistory.size < lastKnownCount)) {
                 lastScanned = 0
+                keyManager.setLastScannedHeight(walletId, 0)
             }
 
             if (blockHeight > lastScanned) {
@@ -407,6 +409,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         keyManager.replaceTxHistoryForWallet(combined, walletId)
                         _uiState.value = _uiState.value.copy(txHistory = combined)
                     }
+                }
+
+                // Save TX count after successful scan for data-loss detection
+                if (keyManager.getActiveWalletId() == walletId) {
+                    keyManager.setLastScanTxCount(walletId, keyManager.getTxHistoryForActiveWallet().size)
                 }
             }
         } catch (_: Exception) {

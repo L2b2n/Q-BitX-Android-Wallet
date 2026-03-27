@@ -699,6 +699,24 @@ fun WalletScreen(
             }
 
             // TX History
+            if (state.isScanningHistory && state.scanProgressText != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .solidCard()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = QBXPurple
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(state.scanProgressText!!, fontSize = 13.sp, color = QBXOnSurfaceDim)
+                }
+            }
             if (state.txHistory.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -1277,6 +1295,25 @@ fun HistoryScreen(
 
         if (state.txHistory.isEmpty()) {
             // Empty state
+            if (state.isScanningHistory && state.scanProgressText != null) {
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .solidCard()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = QBXPurple
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(state.scanProgressText!!, fontSize = 13.sp, color = QBXOnSurfaceDim)
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()

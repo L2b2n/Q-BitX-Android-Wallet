@@ -261,6 +261,14 @@ class KeyManager(context: Context) {
         prefs.edit().putInt("w${walletId}_last_scan", height).apply()
     }
 
+    fun getLastScanTxCount(walletId: Int): Int {
+        return prefs.getInt("w${walletId}_last_scan_count", -1)
+    }
+
+    fun setLastScanTxCount(walletId: Int, count: Int) {
+        prefs.edit().putInt("w${walletId}_last_scan_count", count).apply()
+    }
+
     // ---- TX History ----
 
     fun addTxRecord(txid: String, toAddress: String, amount: Double, fee: String) {
