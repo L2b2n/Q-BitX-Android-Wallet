@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -374,11 +375,13 @@ class NodeRpcClient(
         while (from <= blockHeight) {
             coroutineScope { ensureActive() }
             val to = minOf(from + batchSize - 1, blockHeight)
-            val batch = scanBlocksBatch(from, to, address)
-            if (batch == null) {
-                // Request failed (rate limit / network error) — stop here
-                break
+            var batch: List<String>? = null
+            for (attempt in 1..3) {
+                batch = scanBlocksBatch(from, to, address)
+                if (batch != null) break
+                if (attempt < 3) kotlinx.coroutines.delay(2000L * attempt)
             }
+            if (batch == null) break
             found.addAll(batch)
             highestScanned = to
             onProgress?.invoke(to - startHeight + 1, totalBlocks)

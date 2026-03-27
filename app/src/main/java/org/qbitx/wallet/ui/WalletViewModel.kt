@@ -516,7 +516,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val actualFeeSat = if (actualChange > 0) totalInputSat - amountSat - actualChange else totalInputSat - amountSat
                 val feeQbx = actualFeeSat / 1e8
 
-                keyManager.addTxRecord(txid, toAddress, amount, feePolicy)
+                val feeStr = "%.8f QBX".format(feeQbx)
+
+                keyManager.addTxRecord(txid, toAddress, amount, feeStr)
 
                 // Immediately deduct sent amount + fee from displayed balance
                 val currentBalance = _uiState.value.balance
@@ -524,7 +526,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 // Preserve current UI history and prepend new TX (avoid SharedPrefs race)
                 val newRecord = TxRecord(
                     txid = txid, toAddress = toAddress, amount = amount,
-                    fee = feePolicy, timestamp = System.currentTimeMillis(),
+                    fee = feeStr, timestamp = System.currentTimeMillis(),
                     walletId = keyManager.getActiveWalletId(),
                     direction = "out", confirmations = 0
                 )
