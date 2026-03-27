@@ -133,6 +133,6 @@
 
     <!-- About -->
     <string name="settings_about">关于</string>
-    <string name="settings_version">Q-BitX 钱包 v1.4.2</string>
+    <string name="settings_version">Q-BitX 钱包 v1.4.3</string>
     <string name="settings_subtitle">后量子轻钱包 · Dilithium3 / ML-DSA-65</string>
 </resources>

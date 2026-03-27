@@ -3,6 +3,7 @@ package org.qbitx.wallet.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -51,6 +52,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val keyManager = KeyManager(application)
     val rpcClient = NodeRpcClient(rpcUrl = "https://qbitx.solopool.site/")
     private var isRefreshing = false
+    private var refreshJob: Job? = null
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -112,9 +114,17 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun switchWallet(id: Int) {
+        // Cancel any ongoing refresh to prevent stale data overwriting new wallet
+        refreshJob?.cancel()
+        refreshJob = null
+        isRefreshing = false
         keyManager.setActiveWallet(id)
         checkWallet()
-        _uiState.value = _uiState.value.copy(balance = 0.0, unconfirmedBalance = 0.0)
+        _uiState.value = _uiState.value.copy(
+            balance = 0.0, unconfirmedBalance = 0.0,
+            immatureBalance = 0.0, immatureBlocks = 0,
+            isScanningHistory = false, scanProgressText = null
+        )
         viewModelScope.launch { refreshBalance() }
     }
 
@@ -129,9 +139,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     fun deleteActiveWallet() {
         val id = keyManager.getActiveWalletId()
         if (id >= 0) {
+            refreshJob?.cancel()
+            refreshJob = null
+            isRefreshing = false
             keyManager.deleteWallet(id)
             checkWallet()
-            _uiState.value = _uiState.value.copy(balance = 0.0, unconfirmedBalance = 0.0)
+            _uiState.value = _uiState.value.copy(
+                balance = 0.0, unconfirmedBalance = 0.0,
+                immatureBalance = 0.0, immatureBlocks = 0,
+                isScanningHistory = false, scanProgressText = null
+            )
             if (_uiState.value.hasWallet) {
                 viewModelScope.launch { refreshBalance() }
             }
@@ -162,7 +179,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshBalance() {
         if (isRefreshing) return
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             isRefreshing = true
             try {
                 val address = _uiState.value.address
