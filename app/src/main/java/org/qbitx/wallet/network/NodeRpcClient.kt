@@ -43,7 +43,7 @@ class NodeRpcClient(
         sslContext.init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier { _, _ -> true }
             .build()

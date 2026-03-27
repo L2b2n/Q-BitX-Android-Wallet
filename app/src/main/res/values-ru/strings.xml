@@ -133,6 +133,6 @@
 
     <!-- About -->
     <string name="settings_about">О приложении</string>
-    <string name="settings_version">Q-BitX Кошелёк v1.4.1</string>
+    <string name="settings_version">Q-BitX Кошелёк v1.4.2</string>
     <string name="settings_subtitle">Постквантовый лёгкий кошелёк · Dilithium3 / ML-DSA-65</string>
 </resources>

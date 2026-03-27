@@ -197,16 +197,140 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * Fetch TX details and build TxRecords.
+     * Handles both already-confirmed (cached) and fresh fetches.
+     */
+    private suspend fun fetchTxRecords(
+        txids: List<String>,
+        localByTxid: Map<String, TxRecord>,
+        myAddress: String,
+        walletId: Int
+    ): List<TxRecord> {
+        val CONFIRMED_THRESHOLD = 6
+        val alreadyConfirmed = mutableListOf<TxRecord>()
+        val txidsToFetch = mutableListOf<String>()
+
+        for (txid in txids) {
+            val local = localByTxid[txid]
+            if (local != null && local.confirmations >= CONFIRMED_THRESHOLD) {
+                alreadyConfirmed.add(local)
+            } else {
+                txidsToFetch.add(txid)
+            }
+        }
+
+        if (txidsToFetch.isEmpty()) return alreadyConfirmed
+
+        val semaphore = Semaphore(8)
+        val fetchedDetails: List<Pair<String, TxDetail?>> = coroutineScope {
+            txidsToFetch.map { txid ->
+                async {
+                    semaphore.acquire()
+                    try {
+                        txid to rpcClient.getTransactionDetails(txid)
+                    } finally {
+                        semaphore.release()
+                    }
+                }
+            }.awaitAll()
+        }
+
+        val records = mutableListOf<TxRecord>()
+        records.addAll(alreadyConfirmed)
+
+        for ((txid, detail) in fetchedDetails) {
+            val local = localByTxid[txid]
+
+            if (detail == null) {
+                if (local != null) records.add(local)
+                continue
+            }
+
+            var receivedAmount = 0.0
+            var sentToOther = 0.0
+            var otherAddress = ""
+
+            for (vo in detail.voutList) {
+                if (vo.addresses.contains(myAddress)) {
+                    receivedAmount += vo.value
+                } else {
+                    sentToOther += vo.value
+                    if (otherAddress.isEmpty() && vo.addresses.isNotEmpty()) {
+                        otherAddress = vo.addresses.first()
+                    }
+                }
+            }
+
+            val timestamp = if (detail.time > 0) detail.time * 1000 else
+                local?.timestamp ?: System.currentTimeMillis()
+
+            val isSender = if (local != null) {
+                local.direction == "out"
+            } else {
+                rpcClient.isAddressSpender(detail, myAddress)
+            }
+
+            if (isSender) {
+                if (local != null) {
+                    records.add(local.copy(confirmations = detail.confirmations))
+                } else {
+                    records.add(
+                        TxRecord(
+                            txid = txid,
+                            toAddress = otherAddress,
+                            amount = sentToOther,
+                            fee = "",
+                            timestamp = timestamp,
+                            walletId = walletId,
+                            direction = "out",
+                            confirmations = detail.confirmations
+                        )
+                    )
+                }
+            } else {
+                if (receivedAmount > 0) {
+                    records.add(
+                        TxRecord(
+                            txid = txid,
+                            toAddress = myAddress,
+                            amount = receivedAmount,
+                            fee = "",
+                            timestamp = timestamp,
+                            walletId = walletId,
+                            direction = "in",
+                            confirmations = detail.confirmations
+                        )
+                    )
+                }
+            }
+        }
+
+        return records
+    }
+
+    /**
      * Scan blockchain for TX history using UTXO txids.
-     * Uses incremental scanning: only fetches new blocks since last scan.
-     * Stores lastScannedHeight per wallet to avoid re-scanning.
+     * Phase 1: Immediately show TXs from UTXOs + local history.
+     * Phase 2: Scan blockchain for additional TXs (incremental, may take minutes).
      */
     private suspend fun scanTxHistory(myAddress: String, utxoTxids: List<String>) {
-        try {
-            val walletId = keyManager.getActiveWalletId()
-            val localHistory = keyManager.getTxHistoryForActiveWallet()
-            val localByTxid = localHistory.associateBy { it.txid }
+        val walletId = keyManager.getActiveWalletId()
+        val localHistory = keyManager.getTxHistoryForActiveWallet()
+        val localByTxid = localHistory.associateBy { it.txid }
 
+        // Phase 1: Immediately fetch and show UTXO-based + local TXs
+        val baseTxids = (utxoTxids + localHistory.map { it.txid }).distinct()
+        if (baseTxids.isNotEmpty()) {
+            try {
+                val baseRecords = fetchTxRecords(baseTxids, localByTxid, myAddress, walletId)
+                val sorted = baseRecords.sortedByDescending { it.timestamp }
+                keyManager.replaceTxHistoryForWallet(sorted, walletId)
+                _uiState.value = _uiState.value.copy(txHistory = sorted)
+            } catch (_: Exception) {}
+        }
+
+        // Phase 2: Scan blockchain for additional TXs (incremental)
+        try {
             val blockHeight = _uiState.value.blockHeight
             var lastScanned = keyManager.getLastScannedHeight(walletId)
 
@@ -215,7 +339,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 lastScanned = 0
             }
 
-            val discoveredTxids: List<String>
             if (blockHeight > lastScanned) {
                 val totalBlocks = blockHeight - lastScanned
                 if (totalBlocks > 100) {
@@ -235,7 +358,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     }
                 )
-                discoveredTxids = txids
                 _uiState.value = _uiState.value.copy(
                     isScanningHistory = false,
                     scanProgressText = null
@@ -243,117 +365,27 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (highestScanned > lastScanned) {
                     keyManager.setLastScannedHeight(walletId, highestScanned)
                 }
-            } else {
-                discoveredTxids = emptyList()
-            }
 
-            val allTxids = (utxoTxids + localHistory.map { it.txid } + discoveredTxids).distinct()
-
-            // Skip re-fetching TXs already deeply confirmed (won't change)
-            val CONFIRMED_THRESHOLD = 6
-            val alreadyConfirmed = mutableListOf<TxRecord>()
-            val txidsToFetch = mutableListOf<String>()
-
-            for (txid in allTxids) {
-                val local = localByTxid[txid]
-                if (local != null && local.confirmations >= CONFIRMED_THRESHOLD) {
-                    alreadyConfirmed.add(local)
-                } else {
-                    txidsToFetch.add(txid)
-                }
-            }
-
-            // Fetch TX details in parallel (up to 8 concurrent requests)
-            val semaphore = Semaphore(8)
-            val fetchedDetails: List<Pair<String, TxDetail?>> = coroutineScope {
-                txidsToFetch.map { txid ->
-                    async {
-                        semaphore.acquire()
-                        try {
-                            txid to rpcClient.getTransactionDetails(txid)
-                        } finally {
-                            semaphore.release()
-                        }
-                    }
-                }.awaitAll()
-            }
-
-            val newRecords = mutableListOf<TxRecord>()
-            newRecords.addAll(alreadyConfirmed)
-
-            for ((txid, detail) in fetchedDetails) {
-                val local = localByTxid[txid]
-
-                if (detail == null) {
-                    if (local != null) newRecords.add(local)
-                    continue
-                }
-
-                var receivedAmount = 0.0
-                var sentToOther = 0.0
-                var otherAddress = ""
-
-                for (vo in detail.voutList) {
-                    if (vo.addresses.contains(myAddress)) {
-                        receivedAmount += vo.value
-                    } else {
-                        sentToOther += vo.value
-                        if (otherAddress.isEmpty() && vo.addresses.isNotEmpty()) {
-                            otherAddress = vo.addresses.first()
-                        }
-                    }
-                }
-
-                val timestamp = if (detail.time > 0) detail.time * 1000 else
-                    local?.timestamp ?: System.currentTimeMillis()
-
-                val isSender = if (local != null) {
-                    local.direction == "out"
-                } else {
-                    rpcClient.isAddressSpender(detail, myAddress)
-                }
-
-                if (isSender) {
-                    if (local != null) {
-                        newRecords.add(local.copy(confirmations = detail.confirmations))
-                    } else {
-                        newRecords.add(
-                            TxRecord(
-                                txid = txid,
-                                toAddress = otherAddress,
-                                amount = sentToOther,
-                                fee = "",
-                                timestamp = timestamp,
-                                walletId = walletId,
-                                direction = "out",
-                                confirmations = detail.confirmations
-                            )
-                        )
-                    }
-                } else {
-                    if (receivedAmount > 0) {
-                        newRecords.add(
-                            TxRecord(
-                                txid = txid,
-                                toAddress = myAddress,
-                                amount = receivedAmount,
-                                fee = "",
-                                timestamp = timestamp,
-                                walletId = walletId,
-                                direction = "in",
-                                confirmations = detail.confirmations
-                            )
-                        )
+                // Fetch details for newly discovered TXs
+                val newTxids = txids.filter { it !in baseTxids }
+                if (newTxids.isNotEmpty()) {
+                    val currentHistory = keyManager.getTxHistoryForActiveWallet()
+                    val currentByTxid = currentHistory.associateBy { it.txid }
+                    val extraTxids = newTxids.filter { it !in currentByTxid }
+                    if (extraTxids.isNotEmpty()) {
+                        val newRecords = fetchTxRecords(extraTxids, currentByTxid, myAddress, walletId)
+                        val combined = (currentHistory + newRecords).sortedByDescending { it.timestamp }
+                        keyManager.replaceTxHistoryForWallet(combined, walletId)
+                        _uiState.value = _uiState.value.copy(txHistory = combined)
                     }
                 }
             }
-
-            val sorted = newRecords.sortedByDescending { it.timestamp }
-            if (sorted.isNotEmpty() || localHistory.isEmpty()) {
-                keyManager.replaceTxHistoryForWallet(sorted, walletId)
-                _uiState.value = _uiState.value.copy(txHistory = sorted)
-            }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isScanningHistory = false,
+                scanProgressText = null
+            )
+        }
     }
 
     private fun refreshFeeRates() {
