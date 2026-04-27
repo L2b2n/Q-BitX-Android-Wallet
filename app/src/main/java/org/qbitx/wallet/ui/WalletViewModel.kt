@@ -465,74 +465,134 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val amountSat = Math.round(amount * 1e8)
 
-                val selected = mutableListOf<org.qbitx.wallet.network.Utxo>()
-                var totalInputSat = 0L
+                // Hard cap on inputs per TX to stay below the typical nginx
+                // client_max_body_size (1 MB) of public RPC proxies.
+                // Each PQ input is ~5 KB raw and ~10 KB hex-in-JSON, so 80 inputs
+                // give a safe payload well below 1 MB.
+                val MAX_INPUTS_PER_TX = 80
+                val DUST = 546L
 
-                for (utxo in spendable.sortedByDescending { it.amount }) {
-                    selected.add(utxo)
-                    totalInputSat += Math.round(utxo.amount * 1e8)
-                    val fee = TransactionBuilder.estimateFee(selected.size, 2, feeRate)
-                    if (totalInputSat >= amountSat + fee) break
+                // Sort UTXOs largest-first; we'll consume them across multiple
+                // TXs (auto-split) until the requested amount is fully sent.
+                val pool = spendable.sortedByDescending { it.amount }.toMutableList()
+                val sentTxids = mutableListOf<String>()
+                var totalActualFeeSat = 0L
+                var remainingToSend = amountSat
+                var batchIndex = 0
+
+                while (remainingToSend > 0) {
+                    if (pool.isEmpty()) {
+                        val sentSoFar = (amountSat - remainingToSend) / 1e8
+                        throw Exception(
+                            "Nicht genug Guthaben — bereits gesendet: ${"%.8f".format(sentSoFar)} QBX, " +
+                            "fehlend: ${"%.8f".format(remainingToSend / 1e8)} QBX."
+                        )
+                    }
+
+                    // Greedily fill this batch (up to MAX_INPUTS_PER_TX).
+                    val batch = mutableListOf<org.qbitx.wallet.network.Utxo>()
+                    var batchInSat = 0L
+                    while (batch.size < MAX_INPUTS_PER_TX && pool.isNotEmpty()) {
+                        val u = pool.removeAt(0)
+                        batch.add(u)
+                        batchInSat += Math.round(u.amount * 1e8)
+                        val feeWithChange = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
+                        if (batchInSat >= remainingToSend + feeWithChange) break
+                    }
+
+                    val fee2 = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
+                    val fee1 = TransactionBuilder.estimateFee(batch.size, 1, feeRate)
+
+                    val sendAmtSat: Long
+                    val changeSat: Long
+                    val actualFeeSat: Long
+
+                    if (batchInSat >= remainingToSend + fee2) {
+                        // This batch can complete the send with change back.
+                        sendAmtSat = remainingToSend
+                        val ch = batchInSat - remainingToSend - fee2
+                        if (ch >= DUST) {
+                            changeSat = ch
+                            actualFeeSat = fee2
+                        } else {
+                            // Drop dust change → no change output, dust becomes part of fee
+                            changeSat = 0L
+                            actualFeeSat = batchInSat - remainingToSend
+                        }
+                    } else {
+                        // Pool exhausted before reaching target in this batch:
+                        // do a partial send (no change) and continue with next batch.
+                        if (batchInSat <= fee1) {
+                            throw Exception(
+                                "Saldo besteht aus zu vielen winzigen UTXOs — bitte höhere Gebühr wählen oder kleinere Beträge senden."
+                            )
+                        }
+                        sendAmtSat = batchInSat - fee1
+                        changeSat = 0L
+                        actualFeeSat = fee1
+                    }
+
+                    val recipientAmountQbx = sendAmtSat / 1e8
+                    val changeAmountQbx = if (changeSat > 0) changeSat / 1e8 else null
+
+                    val unsignedHex = rpcClient.createRawTransaction(
+                        inputs = batch,
+                        recipientAddress = toAddress,
+                        recipientAmount = recipientAmountQbx,
+                        changeAddress = if (changeSat > 0) myAddress else null,
+                        changeAmount = changeAmountQbx
+                    )
+
+                    val scriptPubKeys = mutableMapOf<Int, String>()
+                    batch.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
+
+                    val signedHex = TransactionBuilder.signTransaction(
+                        unsignedTxHex = unsignedHex,
+                        utxoScriptPubKeys = scriptPubKeys,
+                        signFn = { hash -> keyManager.sign(hash) },
+                        publicKey = publicKey
+                    )
+
+                    val txid = rpcClient.sendRawTransaction(signedHex)
+                    sentTxids.add(txid)
+                    totalActualFeeSat += actualFeeSat
+                    remainingToSend -= sendAmtSat
+                    batchIndex++
+
+                    // Record this partial TX in history immediately
+                    val partFeeQbx = actualFeeSat / 1e8
+                    val partFeeStr = "%.8f QBX".format(partFeeQbx)
+                    keyManager.addTxRecord(txid, toAddress, recipientAmountQbx, partFeeStr)
                 }
 
-                val fee2out = TransactionBuilder.estimateFee(selected.size, 2, feeRate)
-                val fee1out = TransactionBuilder.estimateFee(selected.size, 1, feeRate)
-                val changeSat = totalInputSat - amountSat - fee2out
+                val feeQbx = totalActualFeeSat / 1e8
+                val feeStr = if (sentTxids.size > 1)
+                    "%.8f QBX (in ${sentTxids.size} TXs)".format(feeQbx)
+                else
+                    "%.8f QBX".format(feeQbx)
 
-                val actualChange: Long
-                if (changeSat >= 546) {
-                    actualChange = changeSat
-                } else if (totalInputSat >= amountSat + fee1out) {
-                    actualChange = 0
-                } else {
-                    val needed = (amountSat + fee1out) / 1e8
-                    throw Exception("Nicht genug Guthaben (benötigt: ${"%.8f".format(needed)} QBX)")
-                }
-
-                val recipientAmountQbx = amountSat / 1e8
-                val changeAmountQbx = if (actualChange > 0) actualChange / 1e8 else null
-
-                val unsignedHex = rpcClient.createRawTransaction(
-                    inputs = selected,
-                    recipientAddress = toAddress,
-                    recipientAmount = recipientAmountQbx,
-                    changeAddress = if (actualChange > 0) myAddress else null,
-                    changeAmount = changeAmountQbx
-                )
-
-                val scriptPubKeys = mutableMapOf<Int, String>()
-                selected.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
-
-                val signedHex = TransactionBuilder.signTransaction(
-                    unsignedTxHex = unsignedHex,
-                    utxoScriptPubKeys = scriptPubKeys,
-                    signFn = { hash -> keyManager.sign(hash) },
-                    publicKey = publicKey
-                )
-
-                val txid = rpcClient.sendRawTransaction(signedHex)
-
-                // Calculate actual fee paid
-                val actualFeeSat = if (actualChange > 0) totalInputSat - amountSat - actualChange else totalInputSat - amountSat
-                val feeQbx = actualFeeSat / 1e8
-
-                val feeStr = "%.8f QBX".format(feeQbx)
-
-                keyManager.addTxRecord(txid, toAddress, amount, feeStr)
+                val lastTxid = sentTxids.last()
 
                 // Immediately deduct sent amount + fee from displayed balance
                 val currentBalance = _uiState.value.balance
                 val deducted = amount + feeQbx
-                // Preserve current UI history and prepend new TX (avoid SharedPrefs race)
-                val newRecord = TxRecord(
-                    txid = txid, toAddress = toAddress, amount = amount,
-                    fee = feeStr, timestamp = System.currentTimeMillis(),
-                    walletId = keyManager.getActiveWalletId(),
-                    direction = "out", confirmations = 0
-                )
-                val updatedHistory = listOf(newRecord) + _uiState.value.txHistory
+                // Build UI history records (one per TX) and prepend.
+                val now = System.currentTimeMillis()
+                val walletId = keyManager.getActiveWalletId()
+                val newRecords = sentTxids.mapIndexed { i, tx ->
+                    // Reconstruct per-batch amount approximately from history
+                    val rec = keyManager.getTxHistoryForActiveWallet().firstOrNull { it.txid == tx }
+                    rec ?: TxRecord(
+                        txid = tx, toAddress = toAddress, amount = 0.0,
+                        fee = "", timestamp = now + i,
+                        walletId = walletId, direction = "out", confirmations = 0
+                    )
+                }
+                val updatedHistory = newRecords.reversed() + _uiState.value.txHistory.filter { h ->
+                    sentTxids.none { it == h.txid }
+                }
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false, lastTxId = txid,
+                    isLoading = false, lastTxId = lastTxid,
                     balance = currentBalance - deducted,
                     unconfirmedBalance = -deducted,
                     txHistory = updatedHistory

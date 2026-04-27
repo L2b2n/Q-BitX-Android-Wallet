@@ -59,6 +59,27 @@ class NodeRpcClient(
 
     private fun buildUrl(): String = rpcUrl
 
+    /**
+     * Translate a non-2xx HTTP response into a clear, user-facing RpcException.
+     * Especially handles common proxy errors (413, 404, 405, 5xx) instead of
+     * dumping raw HTML from nginx error pages.
+     */
+    private fun httpErrorMessage(httpCode: Int, body: String?): String = when (httpCode) {
+        413 -> "Server-Limit überschritten (HTTP 413). Der RPC-Proxy lehnt zu große Requests ab — " +
+                "PQ-Transaktionen sind durch die Dilithium-Signatur (~5 KB pro Input) zu groß für diesen Node. " +
+                "Bitte einen Node mit höherem nginx client_max_body_size verwenden " +
+                "(z. B. eigenen qbitx-Node oder anderen öffentlichen Endpoint)."
+        404 -> "RPC-Endpunkt nicht gefunden (HTTP 404). RPC-URL prüfen."
+        405 -> "Falsche RPC-URL (HTTP 405 Method Not Allowed). Der Server akzeptiert kein POST an diesem Pfad — " +
+                "URL korrigieren (häufig fehlt der RPC-Pfad oder der Port)."
+        401, 403 -> "Authentifizierung fehlgeschlagen (HTTP $httpCode). RPC-User/Passwort prüfen."
+        in 500..599 -> "Node nicht erreichbar (HTTP $httpCode). Bitte später erneut versuchen."
+        else -> {
+            val snippet = body?.take(200)?.replace("\\s+".toRegex(), " ")?.trim().orEmpty()
+            "Node-Fehler HTTP $httpCode${if (snippet.isNotEmpty()) ": $snippet" else ""}"
+        }
+    }
+
     /** Execute a JSON-RPC call and return the result as JsonObject. */
     suspend fun call(method: String, vararg params: Any?): JsonObject = withContext(Dispatchers.IO) {
         val id = ++requestId
@@ -76,19 +97,28 @@ class NodeRpcClient(
         val request = requestBuilder.build()
         val response = client.newCall(request).execute()
         val responseBody = response.body?.string()
-            ?: throw RpcException("Empty response from node")
+
+        // Give a clear error for common HTTP failures (proxy 413, wrong path 405, etc.)
+        // before attempting JSON parse — otherwise users see raw nginx HTML.
+        if (!response.isSuccessful) {
+            throw RpcException(httpErrorMessage(response.code, responseBody))
+        }
+
+        if (responseBody == null) {
+            throw RpcException("Leere Antwort vom Node")
+        }
 
         val json = try {
             JsonParser.parseString(responseBody).asJsonObject
         } catch (e: Exception) {
-            throw RpcException("Invalid response from node (not JSON): ${responseBody.take(200)}")
+            throw RpcException("Ungültige Antwort vom Node (kein JSON): ${responseBody.take(200)}")
         }
 
         if (json.has("error") && !json.get("error").isJsonNull) {
             val error = json.getAsJsonObject("error")
             val code = error.get("code")?.asInt ?: -1
             val message = error.get("message")?.asString ?: "Unknown RPC error"
-            throw RpcException("RPC error $code: $message")
+            throw RpcException("RPC-Fehler $code: $message")
         }
 
         json
@@ -216,23 +246,29 @@ class NodeRpcClient(
         val req = requestBuilder.build()
         val response = client.newCall(req).execute()
         val responseBody = response.body?.string()
-            ?: throw RpcException("Empty response from node")
+
+        if (!response.isSuccessful) {
+            throw RpcException(httpErrorMessage(response.code, responseBody))
+        }
+        if (responseBody == null) {
+            throw RpcException("Leere Antwort vom Node")
+        }
 
         val json = JsonParser.parseString(responseBody).asJsonObject
         if (json.has("error") && !json.get("error").isJsonNull) {
             val error = json.getAsJsonObject("error")
             val code = error.get("code")?.asInt ?: -1
             val message = error.get("message")?.asString ?: "Unknown RPC error"
-            throw RpcException("RPC error $code: $message")
+            throw RpcException("RPC-Fehler $code: $message")
         }
 
-        json.get("result")?.asString ?: throw RpcException("Failed to create raw transaction")
+        json.get("result")?.asString ?: throw RpcException("createrawtransaction lieferte kein Ergebnis")
     }
 
     /** Broadcast a signed raw transaction. Returns the txid. */
     suspend fun sendRawTransaction(hexTx: String): String {
         val result = call("sendrawtransaction", hexTx)
-        return result.get("result")?.asString ?: throw RpcException("Failed to broadcast tx")
+        return result.get("result")?.asString ?: throw RpcException("Broadcast fehlgeschlagen")
     }
 
     /**
