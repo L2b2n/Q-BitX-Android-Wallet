@@ -15,6 +15,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -30,6 +31,30 @@ import javax.net.ssl.X509TrustManager
 class NodeRpcClient(
     private var rpcUrl: String = "https://qbitx.solopool.site/"
 ) {
+    companion object {
+        fun normalizeRpcUrl(rawUrl: String): String {
+            val trimmed = rawUrl.trim()
+            if (trimmed.isEmpty()) {
+                throw RpcException("RPC-URL darf nicht leer sein")
+            }
+
+            val candidate = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                trimmed
+            } else {
+                "https://$trimmed"
+            }
+
+            val httpUrl = candidate.toHttpUrlOrNull()
+                ?: throw RpcException("Ungültige RPC-URL. Bitte http:// oder https:// mit gültigem Host angeben.")
+
+            if (httpUrl.host.isBlank()) {
+                throw RpcException("Ungültige RPC-URL. Host fehlt.")
+            }
+
+            return httpUrl.toString().trimEnd('/')
+        }
+    }
+
     private val gson = Gson()
     private val JSON = "application/json".toMediaType()
 
@@ -54,7 +79,7 @@ class NodeRpcClient(
     private var requestId = 0
 
     fun configure(rpcUrl: String) {
-        this.rpcUrl = rpcUrl.trimEnd('/')
+        this.rpcUrl = normalizeRpcUrl(rpcUrl)
     }
 
     private fun buildUrl(): String = rpcUrl

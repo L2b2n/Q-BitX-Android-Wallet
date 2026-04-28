@@ -62,8 +62,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(isLocked = hasPIN, hasPin = hasPIN)
         val savedUrl = keyManager.getSavedRpcUrl()
         if (!savedUrl.isNullOrEmpty()) {
-            _uiState.value = _uiState.value.copy(rpcUrl = savedUrl)
-            rpcClient.configure(savedUrl)
+            try {
+                val normalizedUrl = NodeRpcClient.normalizeRpcUrl(savedUrl)
+                _uiState.value = _uiState.value.copy(rpcUrl = normalizedUrl)
+                rpcClient.configure(normalizedUrl)
+            } catch (_: Exception) {
+                keyManager.saveRpcUrl("https://qbitx.solopool.site/")
+            }
         }
         checkWallet()
         autoConnect()
@@ -89,11 +94,25 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         val activeId = keyManager.getActiveWalletId()
         val activeName = wallets.find { it.id == activeId }?.name ?: ""
         val txHistory = keyManager.getTxHistoryForActiveWallet()
+        val pendingDelta = pendingOutDelta(txHistory)
         _uiState.value = _uiState.value.copy(
             hasWallet = has, address = address,
             wallets = wallets, activeWalletName = activeName,
-            txHistory = txHistory
+            txHistory = txHistory,
+            unconfirmedBalance = pendingDelta
         )
+    }
+
+    /** Sum all pending outgoing TXs (negative delta in QBX). */
+    private fun pendingOutDelta(history: List<TxRecord>): Double = history
+        .filter { it.confirmations == 0 && it.direction == "out" }
+        .sumOf { -(it.amount + parseFeeQbx(it.fee)) }
+
+    /** Parse a stored fee string like "0.00053500 QBX" back to a Double in QBX. */
+    private fun parseFeeQbx(fee: String): Double {
+        if (fee.isBlank()) return 0.0
+        val number = fee.trim().split(' ').firstOrNull()?.replace(',', '.') ?: return 0.0
+        return number.toDoubleOrNull() ?: 0.0
     }
 
     fun createWallet(name: String = "") {
@@ -157,11 +176,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun connectToNode(rpcUrl: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, rpcUrl = rpcUrl)
-            keyManager.saveRpcUrl(rpcUrl)
-            rpcClient.configure(rpcUrl)
             try {
+                val normalizedUrl = NodeRpcClient.normalizeRpcUrl(rpcUrl)
+                _uiState.value = _uiState.value.copy(isLoading = true, error = null, rpcUrl = normalizedUrl)
+                rpcClient.configure(normalizedUrl)
                 val info = rpcClient.getBlockchainInfo()
+                keyManager.saveRpcUrl(normalizedUrl)
                 _uiState.value = _uiState.value.copy(
                     nodeConnected = true, chain = info.chain,
                     blockHeight = info.blocks, isLoading = false
@@ -191,9 +211,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (address.isNotEmpty()) {
                     val scanResult = rpcClient.scanTxOutSet(address)
                     val spendable = scanResult.totalAmount - scanResult.immatureAmount
+                    val pendingDelta = pendingOutDelta(_uiState.value.txHistory)
                     _uiState.value = _uiState.value.copy(
                         balance = spendable,
-                        unconfirmedBalance = 0.0,
+                        unconfirmedBalance = pendingDelta,
                         immatureBalance = scanResult.immatureAmount,
                         immatureBlocks = scanResult.immatureBlocks
                     )
@@ -439,6 +460,19 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, lastTxId = null)
             try {
+                val endpointInfo = try {
+                    rpcClient.getBlockchainInfo()
+                } catch (e: Exception) {
+                    _uiState.value = _uiState.value.copy(nodeConnected = false)
+                    throw Exception("Keine gültige Node-Verbindung. RPC-URL prüfen und neu verbinden.")
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    nodeConnected = true,
+                    chain = endpointInfo.chain,
+                    blockHeight = endpointInfo.blocks
+                )
+
                 // Validate address via node
                 if (!rpcClient.validateAddress(toAddress)) {
                     throw Exception("Ungültige Empfängeradresse")
@@ -472,30 +506,38 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val MAX_INPUTS_PER_TX = 80
                 val DUST = 546L
 
-                // Sort UTXOs largest-first; we'll consume them across multiple
-                // TXs (auto-split) until the requested amount is fully sent.
-                val pool = spendable.sortedByDescending { it.amount }.toMutableList()
-                val sentTxids = mutableListOf<String>()
-                var totalActualFeeSat = 0L
+                data class PlannedBatch(
+                    val inputs: List<org.qbitx.wallet.network.Utxo>,
+                    val sendAmtSat: Long,
+                    val changeSat: Long,
+                    val actualFeeSat: Long
+                )
+
+                data class PreparedBatch(
+                    val signedHex: String,
+                    val sendAmtSat: Long,
+                    val actualFeeSat: Long
+                )
+
+                // Preflight the full split plan before sending anything so a failed
+                // feasibility check cannot leave the user with partial broadcasts.
+                val planPool = spendable.sortedByDescending { it.amount }.toMutableList()
+                val plannedBatches = mutableListOf<PlannedBatch>()
                 var remainingToSend = amountSat
-                var batchIndex = 0
 
                 while (remainingToSend > 0) {
-                    if (pool.isEmpty()) {
-                        val sentSoFar = (amountSat - remainingToSend) / 1e8
+                    if (planPool.isEmpty()) {
                         throw Exception(
-                            "Nicht genug Guthaben — bereits gesendet: ${"%.8f".format(sentSoFar)} QBX, " +
-                            "fehlend: ${"%.8f".format(remainingToSend / 1e8)} QBX."
+                            "Nicht genug Guthaben (benötigt: ${"%.8f".format(remainingToSend / 1e8)} QBX plus Gebühren)."
                         )
                     }
 
-                    // Greedily fill this batch (up to MAX_INPUTS_PER_TX).
                     val batch = mutableListOf<org.qbitx.wallet.network.Utxo>()
                     var batchInSat = 0L
-                    while (batch.size < MAX_INPUTS_PER_TX && pool.isNotEmpty()) {
-                        val u = pool.removeAt(0)
-                        batch.add(u)
-                        batchInSat += Math.round(u.amount * 1e8)
+                    while (batch.size < MAX_INPUTS_PER_TX && planPool.isNotEmpty()) {
+                        val utxo = planPool.removeAt(0)
+                        batch.add(utxo)
+                        batchInSat += Math.round(utxo.amount * 1e8)
                         val feeWithChange = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
                         if (batchInSat >= remainingToSend + feeWithChange) break
                     }
@@ -503,94 +545,113 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     val fee2 = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
                     val fee1 = TransactionBuilder.estimateFee(batch.size, 1, feeRate)
 
-                    val sendAmtSat: Long
-                    val changeSat: Long
-                    val actualFeeSat: Long
-
-                    if (batchInSat >= remainingToSend + fee2) {
-                        // This batch can complete the send with change back.
-                        sendAmtSat = remainingToSend
-                        val ch = batchInSat - remainingToSend - fee2
-                        if (ch >= DUST) {
-                            changeSat = ch
-                            actualFeeSat = fee2
+                    val planned = if (batchInSat >= remainingToSend + fee2) {
+                        val rawChange = batchInSat - remainingToSend - fee2
+                        if (rawChange >= DUST) {
+                            PlannedBatch(
+                                inputs = batch,
+                                sendAmtSat = remainingToSend,
+                                changeSat = rawChange,
+                                actualFeeSat = fee2
+                            )
                         } else {
-                            // Drop dust change → no change output, dust becomes part of fee
-                            changeSat = 0L
-                            actualFeeSat = batchInSat - remainingToSend
+                            PlannedBatch(
+                                inputs = batch,
+                                sendAmtSat = remainingToSend,
+                                changeSat = 0L,
+                                actualFeeSat = batchInSat - remainingToSend
+                            )
                         }
                     } else {
-                        // Pool exhausted before reaching target in this batch:
-                        // do a partial send (no change) and continue with next batch.
+                        if (planPool.isEmpty()) {
+                            throw Exception(
+                                "Nicht genug Guthaben (benötigt: ${"%.8f".format(remainingToSend / 1e8)} QBX plus Gebühren)."
+                            )
+                        }
                         if (batchInSat <= fee1) {
                             throw Exception(
                                 "Saldo besteht aus zu vielen winzigen UTXOs — bitte höhere Gebühr wählen oder kleinere Beträge senden."
                             )
                         }
-                        sendAmtSat = batchInSat - fee1
-                        changeSat = 0L
-                        actualFeeSat = fee1
+                        PlannedBatch(
+                            inputs = batch,
+                            sendAmtSat = batchInSat - fee1,
+                            changeSat = 0L,
+                            actualFeeSat = fee1
+                        )
                     }
 
-                    val recipientAmountQbx = sendAmtSat / 1e8
-                    val changeAmountQbx = if (changeSat > 0) changeSat / 1e8 else null
+                    plannedBatches.add(planned)
+                    remainingToSend -= planned.sendAmtSat
+                }
+
+                val preparedBatches = plannedBatches.map { batch ->
+                    val recipientAmountQbx = batch.sendAmtSat / 1e8
+                    val changeAmountQbx = if (batch.changeSat > 0) batch.changeSat / 1e8 else null
 
                     val unsignedHex = rpcClient.createRawTransaction(
-                        inputs = batch,
+                        inputs = batch.inputs,
                         recipientAddress = toAddress,
                         recipientAmount = recipientAmountQbx,
-                        changeAddress = if (changeSat > 0) myAddress else null,
+                        changeAddress = if (batch.changeSat > 0) myAddress else null,
                         changeAmount = changeAmountQbx
                     )
 
                     val scriptPubKeys = mutableMapOf<Int, String>()
-                    batch.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
+                    batch.inputs.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
 
-                    val signedHex = TransactionBuilder.signTransaction(
-                        unsignedTxHex = unsignedHex,
-                        utxoScriptPubKeys = scriptPubKeys,
-                        signFn = { hash -> keyManager.sign(hash) },
-                        publicKey = publicKey
+                    PreparedBatch(
+                        signedHex = TransactionBuilder.signTransaction(
+                            unsignedTxHex = unsignedHex,
+                            utxoScriptPubKeys = scriptPubKeys,
+                            signFn = { hash -> keyManager.sign(hash) },
+                            publicKey = publicKey
+                        ),
+                        sendAmtSat = batch.sendAmtSat,
+                        actualFeeSat = batch.actualFeeSat
                     )
+                }
 
-                    val txid = rpcClient.sendRawTransaction(signedHex)
+                val sentTxids = mutableListOf<String>()
+                val pendingRecords = mutableListOf<TxRecord>()
+                var totalActualFeeSat = 0L
+                val sendStart = System.currentTimeMillis()
+                val activeWalletId = keyManager.getActiveWalletId()
+
+                preparedBatches.forEachIndexed { index, batch ->
+                    val txid = rpcClient.sendRawTransaction(batch.signedHex)
                     sentTxids.add(txid)
-                    totalActualFeeSat += actualFeeSat
-                    remainingToSend -= sendAmtSat
-                    batchIndex++
+                    totalActualFeeSat += batch.actualFeeSat
 
-                    // Record this partial TX in history immediately
-                    val partFeeQbx = actualFeeSat / 1e8
+                    val partAmountQbx = batch.sendAmtSat / 1e8
+                    val partFeeQbx = batch.actualFeeSat / 1e8
                     val partFeeStr = "%.8f QBX".format(partFeeQbx)
-                    keyManager.addTxRecord(txid, toAddress, recipientAmountQbx, partFeeStr)
+
+                    keyManager.addTxRecord(txid, toAddress, partAmountQbx, partFeeStr)
+
+                    pendingRecords.add(
+                        TxRecord(
+                            txid = txid,
+                            toAddress = toAddress,
+                            amount = partAmountQbx,
+                            fee = partFeeStr,
+                            timestamp = sendStart + index,
+                            walletId = activeWalletId,
+                            direction = "out",
+                            confirmations = 0
+                        )
+                    )
                 }
 
                 val feeQbx = totalActualFeeSat / 1e8
-                val feeStr = if (sentTxids.size > 1)
-                    "%.8f QBX (in ${sentTxids.size} TXs)".format(feeQbx)
-                else
-                    "%.8f QBX".format(feeQbx)
 
                 val lastTxid = sentTxids.last()
 
-                // Immediately deduct sent amount + fee from displayed balance
+                // Immediately deduct sent amount + fee from displayed balance.
                 val currentBalance = _uiState.value.balance
                 val deducted = amount + feeQbx
-                // Build UI history records (one per TX) and prepend.
-                val now = System.currentTimeMillis()
-                val walletId = keyManager.getActiveWalletId()
-                val newRecords = sentTxids.mapIndexed { i, tx ->
-                    // Reconstruct per-batch amount approximately from history
-                    val rec = keyManager.getTxHistoryForActiveWallet().firstOrNull { it.txid == tx }
-                    rec ?: TxRecord(
-                        txid = tx, toAddress = toAddress, amount = 0.0,
-                        fee = "", timestamp = now + i,
-                        walletId = walletId, direction = "out", confirmations = 0
-                    )
-                }
-                val updatedHistory = newRecords.reversed() + _uiState.value.txHistory.filter { h ->
-                    sentTxids.none { it == h.txid }
-                }
+                val updatedHistory = pendingRecords.sortedByDescending { it.timestamp } +
+                    _uiState.value.txHistory.filter { h -> sentTxids.none { it == h.txid } }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false, lastTxId = lastTxid,
                     balance = currentBalance - deducted,
