@@ -1038,6 +1038,42 @@ fun SendScreen(
                 }
             }
 
+            // Batch send progress
+            if (state.isLoading && state.sendProgressTotal > 1) {
+                Spacer(Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(QBXPurple.copy(alpha = 0.1f))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "${state.sendProgressPhase} ${state.sendProgressCurrent}/${state.sendProgressTotal}",
+                        color = QBXOnSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = {
+                            if (state.sendProgressTotal > 0)
+                                state.sendProgressCurrent.toFloat() / state.sendProgressTotal.toFloat()
+                            else 0f
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = QBXPurple,
+                        trackColor = QBXPurple.copy(alpha = 0.2f)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Große Sendung wird in mehrere Transaktionen aufgeteilt — bitte App offen lassen.",
+                        color = QBXOnSurface.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
             // Success
             state.lastTxId?.let { txid ->
                 Spacer(Modifier.height(16.dp))

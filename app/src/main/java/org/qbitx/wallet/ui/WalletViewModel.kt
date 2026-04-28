@@ -44,7 +44,10 @@ data class WalletUiState(
     val scanProgressText: String? = null,
     val feeLow: Double = 1.0,
     val feeNormal: Double = 5.0,
-    val feeHigh: Double = 15.0
+    val feeHigh: Double = 15.0,
+    val sendProgressCurrent: Int = 0,
+    val sendProgressTotal: Int = 0,
+    val sendProgressPhase: String = ""
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -499,11 +502,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val amountSat = Math.round(amount * 1e8)
 
-                // Hard cap on inputs per TX to stay below the typical nginx
-                // client_max_body_size (1 MB) of public RPC proxies.
-                // Each PQ input is ~5 KB raw and ~10 KB hex-in-JSON, so 80 inputs
-                // give a safe payload well below 1 MB.
-                val MAX_INPUTS_PER_TX = 80
+                // Hard cap on inputs per TX. The public RPC proxy
+                // (qbitx.solopool.site) runs nginx with client_max_body_size 32m,
+                // and each PQ input is ~10 KB hex-in-JSON. 1200 inputs ~= 12 MB
+                // payload — well below the 32 MB limit, with comfortable headroom.
+                val MAX_INPUTS_PER_TX = 1200
                 val DUST = 546L
 
                 data class PlannedBatch(
@@ -585,7 +588,19 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     remainingToSend -= planned.sendAmtSat
                 }
 
-                val preparedBatches = plannedBatches.map { batch ->
+                val totalBatches = plannedBatches.size
+                _uiState.value = _uiState.value.copy(
+                    sendProgressCurrent = 0,
+                    sendProgressTotal = totalBatches,
+                    sendProgressPhase = "Signiere"
+                )
+
+                val preparedBatches = plannedBatches.mapIndexed { idx, batch ->
+                    _uiState.value = _uiState.value.copy(
+                        sendProgressCurrent = idx + 1,
+                        sendProgressTotal = totalBatches,
+                        sendProgressPhase = "Signiere"
+                    )
                     val recipientAmountQbx = batch.sendAmtSat / 1e8
                     val changeAmountQbx = if (batch.changeSat > 0) batch.changeSat / 1e8 else null
 
@@ -618,7 +633,18 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val sendStart = System.currentTimeMillis()
                 val activeWalletId = keyManager.getActiveWalletId()
 
+                _uiState.value = _uiState.value.copy(
+                    sendProgressCurrent = 0,
+                    sendProgressTotal = totalBatches,
+                    sendProgressPhase = "Sende"
+                )
+
                 preparedBatches.forEachIndexed { index, batch ->
+                    _uiState.value = _uiState.value.copy(
+                        sendProgressCurrent = index + 1,
+                        sendProgressTotal = totalBatches,
+                        sendProgressPhase = "Sende"
+                    )
                     val txid = rpcClient.sendRawTransaction(batch.signedHex)
                     sentTxids.add(txid)
                     totalActualFeeSat += batch.actualFeeSat
@@ -656,13 +682,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     isLoading = false, lastTxId = lastTxid,
                     balance = currentBalance - deducted,
                     unconfirmedBalance = -deducted,
-                    txHistory = updatedHistory
+                    txHistory = updatedHistory,
+                    sendProgressCurrent = 0,
+                    sendProgressTotal = 0,
+                    sendProgressPhase = ""
                 )
             } catch (e: RpcException) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false, error = e.message,
+                    sendProgressCurrent = 0, sendProgressTotal = 0, sendProgressPhase = ""
+                )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false, error = "Senden fehlgeschlagen: ${e.message}"
+                    isLoading = false, error = "Senden fehlgeschlagen: ${e.message}",
+                    sendProgressCurrent = 0, sendProgressTotal = 0, sendProgressPhase = ""
                 )
             }
         }
