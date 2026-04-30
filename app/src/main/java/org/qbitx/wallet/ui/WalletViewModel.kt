@@ -378,6 +378,16 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 if (keyManager.getActiveWalletId() == walletId) {
                     keyManager.replaceTxHistoryForWallet(sorted, walletId)
                     _uiState.value = _uiState.value.copy(txHistory = sorted)
+
+                    // Clear pending-spent outpoints once all our recent out-TXs
+                    // are confirmed (>= 1 confirmation). Keeps the lockset from
+                    // growing forever. If any TX is still unconfirmed, leave it.
+                    val anyUnconfirmedOut = sorted.any {
+                        it.direction == "out" && it.confirmations == 0
+                    }
+                    if (!anyUnconfirmedOut) {
+                        keyManager.clearPendingSpentOutpoints(walletId)
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -486,7 +496,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     ?: throw Exception("Kein Wallet vorhanden")
 
                 val scanResult = rpcClient.scanTxOutSet(myAddress)
-                val spendable = scanResult.unspents.filter { !(it.isCoinbase && it.confirmations < 100) }
+                val pendingSpent = keyManager.getPendingSpentOutpoints()
+                val spendable = scanResult.unspents
+                    .filter { !(it.isCoinbase && it.confirmations < 100) }
+                    .filter { "${it.txid}:${it.vout}" !in pendingSpent }
                 if (spendable.isEmpty()) {
                     if (scanResult.unspents.isNotEmpty()) {
                         throw Exception("Alle UTXOs sind unreife Coinbase-Belohnungen (noch ${scanResult.immatureBlocks} Bl\u00f6cke)")
@@ -650,6 +663,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                     val txid = rpcClient.sendRawTransaction(batch.signedHex)
                     sentTxids.add(txid)
                     totalActualFeeSat += batch.actualFeeSat
+
+                    // Lock the inputs we just spent so the next send (even on a
+                    // restart) won't reuse them while they sit in the mempool.
+                    val spentOutpoints = plannedBatches[index].inputs
+                        .map { "${it.txid}:${it.vout}" }
+                    keyManager.addPendingSpentOutpoints(spentOutpoints, activeWalletId)
 
                     val partAmountQbx = batch.sendAmtSat / 1e8
                     val partFeeQbx = batch.actualFeeSat / 1e8

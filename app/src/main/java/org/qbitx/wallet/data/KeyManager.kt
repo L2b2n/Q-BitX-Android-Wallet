@@ -300,4 +300,26 @@ class KeyManager(context: Context) {
         val id = getActiveWalletId()
         return getAllTxHistory().filter { it.walletId == id }
     }
+
+    // ---- Pending-spent UTXO tracking ----
+    // Outpoints (txid:vout) consumed by transactions we just broadcast and that
+    // are not yet confirmed. Used to filter scanTxOutSet results so we don't
+    // double-spend UTXOs already locked in mempool ("replacement fee" error).
+
+    private fun pendingSpentKey(walletId: Int) = "w${walletId}_pending_spent"
+
+    fun getPendingSpentOutpoints(walletId: Int = getActiveWalletId()): Set<String> {
+        return prefs.getStringSet(pendingSpentKey(walletId), emptySet()) ?: emptySet()
+    }
+
+    fun addPendingSpentOutpoints(outpoints: Collection<String>, walletId: Int = getActiveWalletId()) {
+        val current = prefs.getStringSet(pendingSpentKey(walletId), emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        current.addAll(outpoints)
+        prefs.edit().putStringSet(pendingSpentKey(walletId), current).apply()
+    }
+
+    fun clearPendingSpentOutpoints(walletId: Int = getActiveWalletId()) {
+        prefs.edit().remove(pendingSpentKey(walletId)).apply()
+    }
 }
