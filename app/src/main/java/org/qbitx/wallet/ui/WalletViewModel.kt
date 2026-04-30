@@ -502,11 +502,13 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val amountSat = Math.round(amount * 1e8)
 
-                // Hard cap on inputs per TX. The public RPC proxy
-                // (qbitx.solopool.site) runs nginx with client_max_body_size 32m,
-                // and each PQ input is ~10 KB hex-in-JSON. 1200 inputs ~= 12 MB
-                // payload — well below the 32 MB limit, with comfortable headroom.
-                val MAX_INPUTS_PER_TX = 1200
+                // Hard cap on inputs per TX. The qbitx node enforces
+                // MAX_STANDARD_TX_WEIGHT (RPC error -26: tx-size) which is not
+                // configurable. 80 inputs is the empirically verified safe ceiling
+                // — each Dilithium3 input adds ~5 KB raw, so 80 inputs ~ 400 KB
+                // which fits the node policy. Larger sends are split into multiple
+                // sequential atomic batches with progress shown in the UI.
+                val MAX_INPUTS_PER_TX = 80
                 val DUST = 546L
 
                 data class PlannedBatch(
