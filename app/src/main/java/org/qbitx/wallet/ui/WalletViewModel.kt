@@ -503,12 +503,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val amountSat = Math.round(amount * 1e8)
 
                 // Hard cap on inputs per TX. The qbitx node enforces
-                // MAX_STANDARD_TX_WEIGHT (RPC error -26: tx-size) which is not
-                // configurable. 80 inputs is the empirically verified safe ceiling
-                // — each Dilithium3 input adds ~5 KB raw, so 80 inputs ~ 400 KB
-                // which fits the node policy. Larger sends are split into multiple
-                // sequential atomic batches with progress shown in the UI.
-                val MAX_INPUTS_PER_TX = 80
+                // MAX_STANDARD_TX_WEIGHT = 400_000 (Bitcoin standard policy),
+                // i.e. ~100 KB raw bytes for legacy/PQ transactions.
+                // Each Dilithium3 input adds ~5.3 KB raw, so 18 inputs would just
+                // reach 100 KB. We pick 15 for safe headroom. Larger sends are
+                // split into multiple sequential atomic batches.
+                val MAX_INPUTS_PER_TX = 15
                 val DUST = 546L
 
                 data class PlannedBatch(
