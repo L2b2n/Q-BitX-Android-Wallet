@@ -53,6 +53,7 @@ class MainActivity : FragmentActivity() {
                         )
                         "receive" -> ReceiveScreen(
                             address = state.address,
+                            witnessAddress = state.witnessAddress,
                             onBack = { currentScreen = "home" }
                         )
                         "history" -> HistoryScreen(

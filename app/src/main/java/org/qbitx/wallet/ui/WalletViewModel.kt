@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import org.qbitx.wallet.crypto.AddressUtils
+import org.qbitx.wallet.crypto.SendPlanner
 import org.qbitx.wallet.crypto.TransactionBuilder
 import org.qbitx.wallet.data.KeyManager
 import org.qbitx.wallet.data.TxRecord
@@ -23,6 +25,7 @@ import org.qbitx.wallet.network.TxDetail
 data class WalletUiState(
     val hasWallet: Boolean = false,
     val address: String = "",
+    val witnessAddress: String = "",
     val balance: Double = 0.0,
     val unconfirmedBalance: Double = 0.0,
     val immatureBalance: Double = 0.0,
@@ -93,13 +96,15 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private fun checkWallet() {
         val has = keyManager.hasWallet()
         val address = keyManager.getAddress() ?: ""
+        // Native PQ witness address (dil1q...) of the same key
+        val witnessAddress = keyManager.getPublicKey()?.let { AddressUtils.pubkeyToWitnessAddress(it) } ?: ""
         val wallets = keyManager.listWallets()
         val activeId = keyManager.getActiveWalletId()
         val activeName = wallets.find { it.id == activeId }?.name ?: ""
         val txHistory = keyManager.getTxHistoryForActiveWallet()
         val pendingDelta = pendingOutDelta(txHistory)
         _uiState.value = _uiState.value.copy(
-            hasWallet = has, address = address,
+            hasWallet = has, address = address, witnessAddress = witnessAddress,
             wallets = wallets, activeWalletName = activeName,
             txHistory = txHistory,
             unconfirmedBalance = pendingDelta
@@ -212,7 +217,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 val infoDeferred = async { rpcClient.getBlockchainInfo() }
 
                 if (address.isNotEmpty()) {
-                    val scanResult = rpcClient.scanTxOutSet(address)
+                    val scanResult = rpcClient.scanTxOutSet(address, _uiState.value.witnessAddress)
                     val spendable = scanResult.totalAmount - scanResult.immatureAmount
                     val pendingDelta = pendingOutDelta(_uiState.value.txHistory)
                     _uiState.value = _uiState.value.copy(
@@ -291,8 +296,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             var sentToOther = 0.0
             var otherAddress = ""
 
+            val myWitnessAddress = _uiState.value.witnessAddress
             for (vo in detail.voutList) {
-                if (vo.addresses.contains(myAddress)) {
+                if (vo.addresses.contains(myAddress) ||
+                    (myWitnessAddress.isNotEmpty() && vo.addresses.contains(myWitnessAddress))
+                ) {
                     receivedAmount += vo.value
                 } else {
                     sentToOther += vo.value
@@ -308,7 +316,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val isSender = if (local != null) {
                 local.direction == "out"
             } else {
-                rpcClient.isAddressSpender(detail, myAddress)
+                rpcClient.isAddressSpender(detail, myAddress) ||
+                    (myWitnessAddress.isNotEmpty() && rpcClient.isAddressSpender(detail, myWitnessAddress))
             }
 
             if (isSender) {
@@ -492,10 +501,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
 
                 val myAddress = _uiState.value.address
+                val witnessAddress = _uiState.value.witnessAddress
                 val publicKey = keyManager.getPublicKey()
                     ?: throw Exception("Kein Wallet vorhanden")
 
-                val scanResult = rpcClient.scanTxOutSet(myAddress)
+                val scanResult = rpcClient.scanTxOutSet(myAddress, witnessAddress)
                 val pendingSpent = keyManager.getPendingSpentOutpoints()
                 val spendable = scanResult.unspents
                     .filter { !(it.isCoinbase && it.confirmations < 100) }
@@ -515,15 +525,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val amountSat = Math.round(amount * 1e8)
 
-                // Hard cap on inputs per TX. The qbitx node enforces
-                // MAX_STANDARD_TX_WEIGHT = 400_000 (Bitcoin standard policy),
-                // i.e. ~100 KB raw bytes for legacy/PQ transactions.
-                // Each Dilithium3 input adds ~5.3 KB raw, so 18 inputs would just
-                // reach 100 KB. We pick 15 for safe headroom. Larger sends are
-                // split into multiple sequential atomic batches.
-                val MAX_INPUTS_PER_TX = 15
-                val DUST = 546L
-
                 data class PlannedBatch(
                     val inputs: List<org.qbitx.wallet.network.Utxo>,
                     val sendAmtSat: Long,
@@ -539,69 +540,39 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
                 // Preflight the full split plan before sending anything so a failed
                 // feasibility check cannot leave the user with partial broadcasts.
-                val planPool = spendable.sortedByDescending { it.amount }.toMutableList()
-                val plannedBatches = mutableListOf<PlannedBatch>()
-                var remainingToSend = amountSat
-
-                while (remainingToSend > 0) {
-                    if (planPool.isEmpty()) {
-                        throw Exception(
-                            "Nicht genug Guthaben (benötigt: ${"%.8f".format(remainingToSend / 1e8)} QBX plus Gebühren)."
-                        )
-                    }
-
-                    val batch = mutableListOf<org.qbitx.wallet.network.Utxo>()
-                    var batchInSat = 0L
-                    while (batch.size < MAX_INPUTS_PER_TX && planPool.isNotEmpty()) {
-                        val utxo = planPool.removeAt(0)
-                        batch.add(utxo)
-                        batchInSat += Math.round(utxo.amount * 1e8)
-                        val feeWithChange = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
-                        if (batchInSat >= remainingToSend + feeWithChange) break
-                    }
-
-                    val fee2 = TransactionBuilder.estimateFee(batch.size, 2, feeRate)
-                    val fee1 = TransactionBuilder.estimateFee(batch.size, 1, feeRate)
-
-                    val planned = if (batchInSat >= remainingToSend + fee2) {
-                        val rawChange = batchInSat - remainingToSend - fee2
-                        if (rawChange >= DUST) {
-                            PlannedBatch(
-                                inputs = batch,
-                                sendAmtSat = remainingToSend,
-                                changeSat = rawChange,
-                                actualFeeSat = fee2
-                            )
-                        } else {
-                            PlannedBatch(
-                                inputs = batch,
-                                sendAmtSat = remainingToSend,
-                                changeSat = 0L,
-                                actualFeeSat = batchInSat - remainingToSend
-                            )
-                        }
-                    } else {
-                        if (planPool.isEmpty()) {
-                            throw Exception(
-                                "Nicht genug Guthaben (benötigt: ${"%.8f".format(remainingToSend / 1e8)} QBX plus Gebühren)."
-                            )
-                        }
-                        if (batchInSat <= fee1) {
-                            throw Exception(
-                                "Saldo besteht aus zu vielen winzigen UTXOs — bitte höhere Gebühr wählen oder kleinere Beträge senden."
-                            )
-                        }
-                        PlannedBatch(
-                            inputs = batch,
-                            sendAmtSat = batchInSat - fee1,
-                            changeSat = 0L,
-                            actualFeeSat = fee1
-                        )
-                    }
-
-                    plannedBatches.add(planned)
-                    remainingToSend -= planned.sendAmtSat
+                // SendPlanner limits every batch by transaction weight: 4 legacy "M..."
+                // inputs or up to 60 native PQ witness "dil1q..." inputs (or a mix).
+                val coins = spendable.mapIndexed { i, u ->
+                    SendPlanner.Coin(
+                        amountSat = Math.round(u.amount * 1e8),
+                        isWitness = AddressUtils.isWitnessScriptPubKey(AddressUtils.fromHex(u.scriptPubKey)),
+                        ref = i
+                    )
                 }
+                val plannedBatches = try {
+                    SendPlanner.plan(coins, amountSat, feeRate).map { b ->
+                        PlannedBatch(
+                            inputs = b.coinRefs.map { spendable[it] },
+                            sendAmtSat = b.sendSat,
+                            changeSat = b.changeSat,
+                            actualFeeSat = b.feeSat
+                        )
+                    }
+                } catch (e: SendPlanner.PlanException) {
+                    val missingQbx = "%.8f".format(e.missingSat / 1e8)
+                    throw Exception(
+                        when (e.failure) {
+                            SendPlanner.Failure.INSUFFICIENT_FUNDS ->
+                                "Nicht genug Guthaben (benötigt: $missingQbx QBX plus Gebühren)."
+                            SendPlanner.Failure.UTXOS_TOO_SMALL ->
+                                "Saldo besteht aus zu vielen winzigen UTXOs — bitte höhere Gebühr wählen oder kleinere Beträge senden."
+                        }
+                    )
+                }
+
+                // Change goes to the wallet's own native PQ witness address: outputs there
+                // are far cheaper to spend later than legacy ones.
+                val changeAddress = if (witnessAddress.isNotEmpty()) witnessAddress else myAddress
 
                 val totalBatches = plannedBatches.size
                 _uiState.value = _uiState.value.copy(
@@ -616,26 +587,35 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                         sendProgressTotal = totalBatches,
                         sendProgressPhase = "Signiere"
                     )
-                    val recipientAmountQbx = batch.sendAmtSat / 1e8
-                    val changeAmountQbx = if (batch.changeSat > 0) batch.changeSat / 1e8 else null
+                    // Sending to our own change address: one combined output, because
+                    // createrawtransaction rejects the same address twice.
+                    val changeToRecipient = batch.changeSat > 0 && toAddress.trim() == changeAddress
+                    val recipientSat = if (changeToRecipient) batch.sendAmtSat + batch.changeSat else batch.sendAmtSat
+                    val recipientAmountQbx = recipientSat / 1e8
+                    val changeAmountQbx = if (batch.changeSat > 0 && !changeToRecipient) batch.changeSat / 1e8 else null
 
                     val unsignedHex = rpcClient.createRawTransaction(
                         inputs = batch.inputs,
                         recipientAddress = toAddress,
                         recipientAmount = recipientAmountQbx,
-                        changeAddress = if (batch.changeSat > 0) myAddress else null,
+                        changeAddress = if (changeAmountQbx != null) changeAddress else null,
                         changeAmount = changeAmountQbx
                     )
 
                     val scriptPubKeys = mutableMapOf<Int, String>()
-                    batch.inputs.forEachIndexed { i, utxo -> scriptPubKeys[i] = utxo.scriptPubKey }
+                    val inputAmountsSat = mutableMapOf<Int, Long>()
+                    batch.inputs.forEachIndexed { i, utxo ->
+                        scriptPubKeys[i] = utxo.scriptPubKey
+                        inputAmountsSat[i] = Math.round(utxo.amount * 1e8)
+                    }
 
                     PreparedBatch(
                         signedHex = TransactionBuilder.signTransaction(
                             unsignedTxHex = unsignedHex,
                             utxoScriptPubKeys = scriptPubKeys,
                             signFn = { hash -> keyManager.sign(hash) },
-                            publicKey = publicKey
+                            publicKey = publicKey,
+                            utxoAmountsSat = inputAmountsSat
                         ),
                         sendAmtSat = batch.sendAmtSat,
                         actualFeeSat = batch.actualFeeSat

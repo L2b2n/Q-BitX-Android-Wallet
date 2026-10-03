@@ -664,8 +664,12 @@ fun WalletScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // Address card
+            // Address cards: legacy "M..." and native PQ witness "dil1q..." of the same key
             AddressCard(state.address)
+            if (state.witnessAddress.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                AddressCard(state.witnessAddress)
+            }
 
             Spacer(Modifier.height(16.dp))
 
@@ -1161,10 +1165,15 @@ fun SendScreen(
 @Composable
 fun ReceiveScreen(
     address: String,
+    witnessAddress: String = "",
     onBack: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
+    // The wallet has two addresses for the same key: legacy "M..." and native PQ
+    // witness "dil1q...". The legacy address stays the default; a button switches.
+    var showWitness by remember { mutableStateOf(false) }
+    val shownAddress = if (showWitness && witnessAddress.isNotEmpty()) witnessAddress else address
 
     Column(
         modifier = Modifier
@@ -1200,7 +1209,7 @@ fun ReceiveScreen(
                 .background(QBXSurface),
             contentAlignment = Alignment.Center
         ) {
-            val qrBitmap = remember(address) { generateQrCode(address) }
+            val qrBitmap = remember(shownAddress) { generateQrCode(shownAddress) }
             qrBitmap?.let {
                 Image(
                     bitmap = it.asImageBitmap(),
@@ -1228,7 +1237,7 @@ fun ReceiveScreen(
             Text(stringResource(R.string.receive_your_address), fontSize = 12.sp, color = QBXOnSurfaceDim)
             Spacer(Modifier.height(8.dp))
             Text(
-                address,
+                shownAddress,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 color = QBXOnSurface,
@@ -1237,12 +1246,22 @@ fun ReceiveScreen(
             )
         }
 
-        Spacer(Modifier.height(20.dp))
+        if (witnessAddress.isNotEmpty()) {
+            TextButton(onClick = { showWitness = !showWitness; copied = false }) {
+                Text(
+                    if (showWitness) "Legacy-Adresse (M…) anzeigen" else "PQ-Witness-Adresse (dil1…) anzeigen",
+                    fontSize = 13.sp,
+                    color = QBXPurple
+                )
+            }
+        } else {
+            Spacer(Modifier.height(20.dp))
+        }
 
         // Copy button
         Button(
             onClick = {
-                clipboardManager.setText(AnnotatedString(address))
+                clipboardManager.setText(AnnotatedString(shownAddress))
                 copied = true
             },
             modifier = Modifier

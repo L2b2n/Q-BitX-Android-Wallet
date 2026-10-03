@@ -153,15 +153,18 @@ class NodeRpcClient(
      * Scan the UTXO set for a specific address.
      * Stateless — works for ANY address without a wallet.
      */
-    suspend fun scanTxOutSet(address: String): ScanResult {
+    suspend fun scanTxOutSet(address: String, extraAddress: String? = null): ScanResult {
+        // One scan pass covers both of the wallet's addresses (legacy "M..." and,
+        // if given, the native PQ witness "dil1q..." address of the same key).
         val scanObjects = com.google.gson.JsonArray().apply {
             add("addr($address)")
+            if (!extraAddress.isNullOrEmpty()) add("addr($extraAddress)")
         }
         val result = call("scantxoutset", "start", scanObjects)
         val obj = result.getAsJsonObject("result")
             ?: return ScanResult(totalAmount = 0.0, unspents = emptyList())
 
-        data class RawUtxo(val txid: String, val vout: Int, val amount: Double, val confs: Int, val scriptPubKey: String)
+        data class RawUtxo(val txid: String, val vout: Int, val amount: Double, val confs: Int, val scriptPubKey: String, val desc: String)
 
         val rawUnspents = obj.getAsJsonArray("unspents")?.map { elem ->
             val u = elem.asJsonObject
@@ -171,7 +174,8 @@ class NodeRpcClient(
                 vout = u.get("vout").asInt,
                 amount = u.get("amount").asDouble,
                 confs = confs,
-                scriptPubKey = u.get("scriptPubKey")?.asString ?: ""
+                scriptPubKey = u.get("scriptPubKey")?.asString ?: "",
+                desc = u.get("desc")?.asString ?: ""
             )
         } ?: emptyList()
 
@@ -187,7 +191,7 @@ class NodeRpcClient(
             Utxo(
                 txid = raw.txid,
                 vout = raw.vout,
-                address = address,
+                address = if (!extraAddress.isNullOrEmpty() && raw.desc.contains(extraAddress)) extraAddress else address,
                 amount = raw.amount,
                 confirmations = raw.confs,
                 scriptPubKey = raw.scriptPubKey,

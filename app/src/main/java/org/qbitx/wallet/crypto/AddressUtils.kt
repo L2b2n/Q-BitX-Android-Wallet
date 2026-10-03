@@ -18,9 +18,9 @@ object AddressUtils {
     }
 
     /** Encode a hash160 as a Q-BitX Dilithium address (Base58Check). */
-    fun hash160ToAddress(hash160: ByteArray): String {
+    fun hash160ToAddress(hash160: ByteArray, version: Byte = DILITHIUM_PKHASH_VERSION): String {
         val payload = ByteArray(1 + hash160.size)
-        payload[0] = DILITHIUM_PKHASH_VERSION
+        payload[0] = version
         System.arraycopy(hash160, 0, payload, 1, hash160.size)
         return base58CheckEncode(payload)
     }
@@ -28,6 +28,93 @@ object AddressUtils {
     /** Derive a Q-BitX Dilithium address directly from a public key. */
     fun pubkeyToAddress(pubkey: ByteArray): String {
         return hash160ToAddress(hash160(pubkey))
+    }
+
+    // ---- Native PQ witness addresses (dil1q...) ----
+    //
+    // Mirrors Q-BitX Core (key_io.cpp / addresstype.cpp):
+    //   address      = Bech32(hrp = "dil", data = [0] + convertBits(hash160(pubkey), 8 -> 5))
+    //   scriptPubKey = OP_2 <20-byte hash160(pubkey)>
+    // The same Dilithium key therefore owns both the legacy "M..." address and
+    // the "dil1q..." address.
+
+    private const val DILITHIUM_BECH32_HRP = "dil"
+    private const val BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+    /** Encode a hash160 as a native PQ witness address (Bech32, witness version 0). */
+    fun hash160ToWitnessAddress(hash160: ByteArray, hrp: String = DILITHIUM_BECH32_HRP): String {
+        require(hash160.size == 20) { "hash160 must be 20 bytes" }
+        val data = ArrayList<Int>(33)
+        data.add(0)
+        data.addAll(convertBits8To5(hash160))
+        val checksum = bech32Checksum(hrp, data)
+        val sb = StringBuilder(hrp.length + 1 + data.size + 6)
+        sb.append(hrp).append('1')
+        for (v in data) sb.append(BECH32_CHARSET[v])
+        for (v in checksum) sb.append(BECH32_CHARSET[v])
+        return sb.toString()
+    }
+
+    /** Derive the native PQ witness address (dil1q...) from a public key. */
+    fun pubkeyToWitnessAddress(pubkey: ByteArray, hrp: String = DILITHIUM_BECH32_HRP): String {
+        return hash160ToWitnessAddress(hash160(pubkey), hrp)
+    }
+
+    /** scriptPubKey of the native PQ witness keyhash output: OP_2 <20-byte hash160>. */
+    fun witnessScriptPubKey(hash160: ByteArray): ByteArray {
+        require(hash160.size == 20) { "hash160 must be 20 bytes" }
+        val script = ByteArray(22)
+        script[0] = 0x52 // OP_2
+        script[1] = 0x14 // push 20 bytes
+        System.arraycopy(hash160, 0, script, 2, 20)
+        return script
+    }
+
+    /** True if the scriptPubKey is a native PQ witness keyhash output (OP_2 <20 bytes>). */
+    fun isWitnessScriptPubKey(scriptPubKey: ByteArray): Boolean {
+        return scriptPubKey.size == 22 && scriptPubKey[0] == 0x52.toByte() && scriptPubKey[1] == 0x14.toByte()
+    }
+
+    private fun convertBits8To5(input: ByteArray): List<Int> {
+        val out = ArrayList<Int>((input.size * 8 + 4) / 5)
+        var acc = 0
+        var bits = 0
+        for (b in input) {
+            acc = (acc shl 8) or (b.toInt() and 0xFF)
+            bits += 8
+            while (bits >= 5) {
+                bits -= 5
+                out.add((acc shr bits) and 31)
+            }
+        }
+        if (bits > 0) {
+            out.add((acc shl (5 - bits)) and 31)
+        }
+        return out
+    }
+
+    private fun bech32Polymod(values: List<Int>): Int {
+        val gen = intArrayOf(0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3)
+        var chk = 1
+        for (v in values) {
+            val top = chk ushr 25
+            chk = ((chk and 0x1ffffff) shl 5) xor v
+            for (i in 0 until 5) {
+                if (((top shr i) and 1) == 1) chk = chk xor gen[i]
+            }
+        }
+        return chk
+    }
+
+    private fun bech32Checksum(hrp: String, data: List<Int>): List<Int> {
+        val values = ArrayList<Int>(hrp.length * 2 + 1 + data.size + 6)
+        for (c in hrp) values.add(c.code shr 5)
+        values.add(0)
+        for (c in hrp) values.add(c.code and 31)
+        values.addAll(data)
+        for (i in 0 until 6) values.add(0)
+        val polymod = bech32Polymod(values) xor 1 // constant 1 = Bech32 (not Bech32m)
+        return List(6) { i -> (polymod shr (5 * (5 - i))) and 31 }
     }
 
     // ---- Base58Check encoding ----

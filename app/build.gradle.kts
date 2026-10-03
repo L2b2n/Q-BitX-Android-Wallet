@@ -20,8 +20,8 @@ android {
         applicationId = "org.qbitx.wallet"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.4.11"
+        versionCode = 25
+        versionName = "1.5.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
